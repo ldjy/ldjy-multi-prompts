@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Gemini Multi-Prompt</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="manifest" href="manifest.json">
+    <link rel="apple-touch-icon" href="icon-192.png">
+    <meta name="theme-color" content="#0f172a">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="background-blobs">
+        <div class="blob blob-1"></div>
+        <div class="blob blob-2"></div>
+    </div>
+
+    <div class="container">
+        <header>
+            <h1>Gemini Multi-Tasker</h1>
+            <p>一鍵執行 5 種不同任務</p>
+            <button id="openSettingsBtn" class="secondary-btn">
+                <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+                自訂任務 Prompt
+            </button>
+        </header>
+
+        <section class="settings-card glass-panel">
+            <div class="input-group">
+                <label for="apiKey">Gemini API Key</label>
+                <input type="password" id="apiKey" placeholder="輸入您的 Google Gemini API Key" />
+                <p class="help-text">Key 會安全地儲存在您的瀏覽器中，不會傳送到其他地方。</p>
+            </div>
+        </section>
+
+        <section class="input-card glass-panel">
+            <div class="input-group">
+                <label for="userInput">請輸入要處理的文字</label>
+                <textarea id="userInput" placeholder="貼上文章、句子或任何您想要處理的內容..." rows="5"></textarea>
+            </div>
+            <button id="executeBtn" class="primary-btn">
+                <span class="btn-text">開始執行 (5 個任務)</span>
+                <span class="loader" style="display: none;"></span>
+            </button>
+        </section>
+
+        <section id="resultsSection" class="results-container" style="display: none;">
+            <div class="result-card glass-panel" id="card-0">
+                <div class="card-header">
+                    <h3 class="task-title" id="title-0">任務 1</h3>
+                    <div class="header-actions">
+                        <button class="copy-btn" id="copy-0" title="複製結果" style="display: none;">
+                            <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                        </button>
+                        <div class="status-indicator" id="status-0"></div>
+                    </div>
+                </div>
+                <div class="result-content" id="content-0">等待中...</div>
+            </div>
+            <div class="result-card glass-panel" id="card-1">
+                <div class="card-header">
+                    <h3 class="task-title" id="title-1">任務 2</h3>
+                    <div class="header-actions">
+                        <button class="copy-btn" id="copy-1" title="複製結果" style="display: none;">
+                            <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                        </button>
+                        <div class="status-indicator" id="status-1"></div>
+                    </div>
+                </div>
+                <div class="result-content" id="content-1">等待中...</div>
+            </div>
+            <div class="result-card glass-panel" id="card-2">
+                <div class="card-header">
+                    <h3 class="task-title" id="title-2">任務 3</h3>
+                    <div class="header-actions">
+                        <button class="copy-btn" id="copy-2" title="複製結果" style="display: none;">
+                            <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                        </button>
+                        <div class="status-indicator" id="status-2"></div>
+                    </div>
+                </div>
+                <div class="result-content" id="content-2">等待中...</div>
+            </div>
+            <div class="result-card glass-panel" id="card-3">
+                <div class="card-header">
+                    <h3 class="task-title" id="title-3">任務 4</h3>
+                    <div class="header-actions">
+                        <button class="copy-btn" id="copy-3" title="複製結果" style="display: none;">
+                            <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                        </button>
+                        <div class="status-indicator" id="status-3"></div>
+                    </div>
+                </div>
+                <div class="result-content" id="content-3">等待中...</div>
+            </div>
+            <div class="result-card glass-panel" id="card-4">
+                <div class="card-header">
+                    <h3 class="task-title" id="title-4">任務 5</h3>
+                    <div class="header-actions">
+                        <button class="copy-btn" id="copy-4" title="複製結果" style="display: none;">
+                            <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                        </button>
+                        <div class="status-indicator" id="status-4"></div>
+                    </div>
+                </div>
+                <div class="result-content" id="content-4">等待中...</div>
+            </div>
+        </section>
+    </div>
+
+    <!-- Settings Modal -->
+    <div id="settingsModal" class="modal-overlay" style="display: none;">
+        <div class="modal-content glass-panel">
+            <div class="modal-header">
+                <h2>設定 5 個任務的 Prompt</h2>
+                <button id="closeModalBtn" class="icon-btn">&times;</button>
+            </div>
+            <div class="modal-body" id="tasksFormContainer">
+                <!-- Forms generated by JS -->
+            </div>
+            <div class="modal-footer">
+                <button id="saveTasksBtn" class="primary-btn">儲存設定</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 載入 marked.js 用於將 Markdown 轉換為 HTML -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="app.js"></script>
+    
+    <script>
+        // 註冊 Service Worker (PWA 需要)
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('./sw.js').catch(err => {
+                    console.log('SW registration failed: ', err);
+                });
+            });
+        }
+    </script>
+</body>
+</html>
