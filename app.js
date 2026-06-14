@@ -29,11 +29,32 @@ const defaultTasks = [
         title: "📱 社群貼文產生器",
         systemInstruction: "你是一位社群小編。請將使用者輸入的文字改寫成一篇適合發布在 Facebook 或 Instagram 的活潑貼文，請加上適當的 Emoji，並在結尾加上三個 Hashtag。",
         temperature: 0.7
+    },
+    {
+        id: 5,
+        title: "🤔 反方辯論",
+        systemInstruction: "你是一個專業的辯論家。請針對使用者輸入的觀點，提出三個強而有力的反對意見或盲點分析。",
+        temperature: 0.6
+    },
+    {
+        id: 6,
+        title: "📚 延伸閱讀",
+        systemInstruction: "請針對使用者輸入的主題，推薦 5 個適合深入研究的專有名詞或延伸閱讀方向。",
+        temperature: 0.3
     }
 ];
 
 // 載入自訂任務或使用預設任務
-let tasks = JSON.parse(localStorage.getItem('gemini_custom_tasks')) || defaultTasks;
+let tasks = JSON.parse(localStorage.getItem('gemini_custom_tasks'));
+if (!tasks) {
+    tasks = defaultTasks;
+} else if (tasks.length < 7) {
+    // 升級：如果舊版只有 5 個任務，自動補齊到 7 個
+    for (let i = tasks.length; i < 7; i++) {
+        tasks.push(defaultTasks[i]);
+    }
+    localStorage.setItem('gemini_custom_tasks', JSON.stringify(tasks));
+}
 
 document.addEventListener('DOMContentLoaded', () => {
     const apiKeyInput = document.getElementById('apiKey');
@@ -66,36 +87,6 @@ document.addEventListener('DOMContentLoaded', () => {
         localStorage.setItem('gemini_user_input', userInput.value);
     });
 
-    // 初始化任務卡片標題與複製按鈕
-    function initTaskUI() {
-        tasks.forEach(task => {
-            const titleEl = document.getElementById(`title-${task.id}`);
-            if (titleEl) titleEl.innerText = task.title;
-        });
-    }
-
-    // 初始化一次
-    initTaskUI();
-
-    tasks.forEach(task => {
-        const copyBtn = document.getElementById(`copy-${task.id}`);
-        if (copyBtn) {
-            copyBtn.addEventListener('click', () => {
-                const textToCopy = copyBtn.getAttribute('data-raw-text');
-                if (textToCopy) {
-                    navigator.clipboard.writeText(textToCopy).then(() => {
-                        const originalHTML = copyBtn.innerHTML;
-                        copyBtn.innerHTML = '<svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>';
-                        copyBtn.classList.add('copied');
-                        setTimeout(() => {
-                            copyBtn.innerHTML = originalHTML;
-                            copyBtn.classList.remove('copied');
-                        }, 2000);
-                    });
-                }
-            });
-        }
-    });
 
     // 渲染設定 Modal 表單
     function renderSettingsForm() {
@@ -136,7 +127,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 task.systemInstruction = document.getElementById(`edit-prompt-${task.id}`).value.trim() || task.systemInstruction;
             });
             localStorage.setItem('gemini_custom_tasks', JSON.stringify(tasks));
-            initTaskUI();
             settingsModal.style.display = 'none';
         });
     }
@@ -166,20 +156,59 @@ document.addEventListener('DOMContentLoaded', () => {
         btnText.style.display = 'none';
         loader.style.display = 'inline-block';
         resultsSection.style.display = 'flex';
+        resultsSection.innerHTML = ''; // 清空先前的結果
 
-        // 重置所有卡片狀態
-        tasks.forEach(task => {
-            const statusIndicator = document.getElementById(`status-${task.id}`);
-            const contentDiv = document.getElementById(`content-${task.id}`);
-            const copyBtn = document.getElementById(`copy-${task.id}`);
-            statusIndicator.className = 'status-indicator loading';
-            contentDiv.innerHTML = '正在處理中...';
-            if(copyBtn) copyBtn.style.display = 'none';
+        // 過濾掉 prompt 或標題為空的任務 (直接跳過)
+        const activeTasks = tasks.filter(task => task.systemInstruction.trim() !== '' && task.title.trim() !== '');
+
+        if (activeTasks.length === 0) {
+            resultsSection.innerHTML = '<div style="text-align:center; padding: 2rem; color:var(--text-muted);">所有任務的 Prompt 皆為空，已跳過執行。請至右上角設定任務。</div>';
+            executeBtn.disabled = false;
+            btnText.style.display = 'inline-block';
+            loader.style.display = 'none';
+            return;
+        }
+
+        // 動態生成只有啟用的卡片
+        activeTasks.forEach(task => {
+            const card = document.createElement('div');
+            card.className = 'result-card glass-panel';
+            card.id = `card-${task.id}`;
+            card.innerHTML = `
+                <div class="card-header">
+                    <h3 class="task-title" id="title-${task.id}">${task.title}</h3>
+                    <div class="header-actions">
+                        <button class="copy-btn" id="copy-${task.id}" title="複製結果" style="display: none;">
+                            <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                        </button>
+                        <div class="status-indicator loading" id="status-${task.id}"></div>
+                    </div>
+                </div>
+                <div class="result-content markdown-body" id="content-${task.id}">正在處理中...</div>
+            `;
+            resultsSection.appendChild(card);
+
+            // 綁定動態生成的複製按鈕事件
+            const copyBtn = card.querySelector(`#copy-${task.id}`);
+            copyBtn.addEventListener('click', () => {
+                const textToCopy = copyBtn.getAttribute('data-raw-text');
+                if (textToCopy) {
+                    navigator.clipboard.writeText(textToCopy).then(() => {
+                        const originalHTML = copyBtn.innerHTML;
+                        copyBtn.innerHTML = '<svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>';
+                        copyBtn.classList.add('copied');
+                        setTimeout(() => {
+                            copyBtn.innerHTML = originalHTML;
+                            copyBtn.classList.remove('copied');
+                        }, 2000);
+                    });
+                }
+            });
         });
 
         try {
             // 錯開每個請求的發送時間 (每個延遲 400 毫秒) 來避免一次性觸發 Google API 的併發次數限制
-            const promises = tasks.map((task, index) => {
+            const promises = activeTasks.map((task, index) => {
                 return new Promise(resolve => {
                     setTimeout(async () => {
                         await callGeminiAPI(apiKey, text, task);
