@@ -207,13 +207,13 @@ document.addEventListener('DOMContentLoaded', () => {
         });
 
         try {
-            // 錯開每個請求的發送時間 (每個延遲 400 毫秒) 來避免一次性觸發 Google API 的併發次數限制
+            // 錯開每個請求的發送時間 (每個延遲 600 毫秒) 來避免一次性觸發 Google API 的併發次數限制
             const promises = activeTasks.map((task, index) => {
                 return new Promise(resolve => {
                     setTimeout(async () => {
                         await callGeminiAPI(apiKey, text, task);
                         resolve();
-                    }, index * 400); // 0ms, 400ms, 800ms...
+                    }, index * 600); // 0ms, 600ms, 1200ms...
                 });
             });
             await Promise.all(promises);
@@ -227,13 +227,13 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    async function callGeminiAPI(apiKey, text, task, retries = 2) {
+    async function callGeminiAPI(apiKey, text, task, retries = 4) {
         const statusIndicator = document.getElementById(`status-${task.id}`);
         const contentDiv = document.getElementById(`content-${task.id}`);
 
         try {
-            // 使用最新的 Gemini Flash 模型 (Alias)
-            const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${apiKey}`;
+            // 使用 Gemini Flash Lite (8b) 模型，速度較快且比較不容易塞車
+            const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-8b:generateContent?key=${apiKey}`;
             
             const payload = {
                 contents: [
@@ -258,9 +258,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
             if (!response.ok) {
                 if (response.status === 429 && retries > 0) {
-                    // 如果遇到 429 Rate Limit 錯誤，等待 3 秒後自動重試
-                    contentDiv.innerHTML = '<span style="color:var(--text-muted);">觸發次數限制，自動重新嘗試中...</span>';
-                    await new Promise(r => setTimeout(r, 3000));
+                    // 如果遇到 429 Rate Limit 錯誤，等待 8 秒後自動重試
+                    contentDiv.innerHTML = '<span style="color:var(--text-muted);">免費額度限制，等待 8 秒後重新嘗試中...</span>';
+                    await new Promise(r => setTimeout(r, 8000));
                     return callGeminiAPI(apiKey, text, task, retries - 1);
                 }
                 const errorData = await response.json().catch(() => ({}));
