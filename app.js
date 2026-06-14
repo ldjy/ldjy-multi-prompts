@@ -232,8 +232,8 @@ document.addEventListener('DOMContentLoaded', () => {
         const contentDiv = document.getElementById(`content-${task.id}`);
 
         try {
-            // 使用 Gemini Flash Lite (8b) 模型，速度較快且比較不容易塞車
-            const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-8b:generateContent?key=${apiKey}`;
+            // 根據使用者要求，使用 gemini-3.1-flash-lite 模型
+            const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key=${apiKey}`;
             
             const payload = {
                 contents: [
