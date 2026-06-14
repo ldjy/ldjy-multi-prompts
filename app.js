@@ -178,9 +178,16 @@ document.addEventListener('DOMContentLoaded', () => {
         });
 
         try {
-            // 同時發送 5 個請求
-            const promises = tasks.map(task => callGeminiAPI(apiKey, text, task));
-            await Promise.allSettled(promises);
+            // 錯開每個請求的發送時間 (每個延遲 400 毫秒) 來避免一次性觸發 Google API 的併發次數限制
+            const promises = tasks.map((task, index) => {
+                return new Promise(resolve => {
+                    setTimeout(async () => {
+                        await callGeminiAPI(apiKey, text, task);
+                        resolve();
+                    }, index * 400); // 0ms, 400ms, 800ms...
+                });
+            });
+            await Promise.all(promises);
         } catch (error) {
             console.error('整體執行發生錯誤', error);
         } finally {
@@ -191,7 +198,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    async function callGeminiAPI(apiKey, text, task) {
+    async function callGeminiAPI(apiKey, text, task, retries = 2) {
         const statusIndicator = document.getElementById(`status-${task.id}`);
         const contentDiv = document.getElementById(`content-${task.id}`);
 
@@ -221,8 +228,14 @@ document.addEventListener('DOMContentLoaded', () => {
             });
 
             if (!response.ok) {
-                const errorData = await response.json();
-                throw new Error(errorData.error?.message || `HTTP error! status: ${response.status}`);
+                if (response.status === 429 && retries > 0) {
+                    // 如果遇到 429 Rate Limit 錯誤，等待 3 秒後自動重試
+                    contentDiv.innerHTML = '<span style="color:var(--text-muted);">觸發次數限制，自動重新嘗試中...</span>';
+                    await new Promise(r => setTimeout(r, 3000));
+                    return callGeminiAPI(apiKey, text, task, retries - 1);
+                }
+                const errorData = await response.json().catch(() => ({}));
+                throw new Error(errorData.error?.message || `伺服器回應錯誤 (HTTP ${response.status})`);
             }
 
             const data = await response.json();
