@@ -41,6 +41,24 @@ const defaultTasks = [
         title: "📚 延伸閱讀",
         systemInstruction: "請針對使用者輸入的主題，推薦 5 個適合深入研究的專有名詞或延伸閱讀方向。",
         temperature: 0.3
+    },
+    {
+        id: 7,
+        title: "💡 腦力激盪",
+        systemInstruction: "你是一個創意總監。請根據使用者提供的想法或主題，發想出 3 到 5 個創新、有趣的擴充點子或應用場景。",
+        temperature: 0.8
+    },
+    {
+        id: 8,
+        title: "✍️ 錯字與語句潤飾",
+        systemInstruction: "你是一個專業的校稿人員。請幫忙抓出使用者輸入文字中的錯別字，並將語句潤飾得更通順、易讀。請直接輸出修改後的完整文字即可。",
+        temperature: 0.1
+    },
+    {
+        id: 9,
+        title: "📊 情感與重點分析",
+        systemInstruction: "請分析使用者輸入文字背後隱含的情感（例如：正面、負面、客觀、憤怒等），並用一句話總結這段文字的核心態度。",
+        temperature: 0.3
     }
 ];
 
@@ -48,9 +66,9 @@ const defaultTasks = [
 let tasks = JSON.parse(localStorage.getItem('gemini_custom_tasks'));
 if (!tasks) {
     tasks = defaultTasks;
-} else if (tasks.length < 7) {
-    // 升級：如果舊版只有 5 個任務，自動補齊到 7 個
-    for (let i = tasks.length; i < 7; i++) {
+} else if (tasks.length < 10) {
+    // 升級：如果舊版任務數量少於 10 個，自動補齊到 10 個
+    for (let i = tasks.length; i < 10; i++) {
         tasks.push(defaultTasks[i]);
     }
     localStorage.setItem('gemini_custom_tasks', JSON.stringify(tasks));
