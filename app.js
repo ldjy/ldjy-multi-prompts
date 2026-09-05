@@ -62,16 +62,64 @@ const defaultTasks = [
     }
 ];
 
-// 載入自訂任務或使用預設任務
-let tasks = JSON.parse(localStorage.getItem('gemini_custom_tasks'));
-if (!tasks) {
-    tasks = defaultTasks;
-} else if (tasks.length < 10) {
-    // 升級：如果舊版任務數量少於 10 個，自動補齊到 10 個
-    for (let i = tasks.length; i < 10; i++) {
-        tasks.push(defaultTasks[i]);
+function cloneTasks(tasksList) {
+    return JSON.parse(JSON.stringify(tasksList));
+}
+
+// 載入應用程式狀態 (支援 Tab A 與 Tab B 雙分頁架構)
+let appState = JSON.parse(localStorage.getItem('gemini_app_state'));
+
+if (!appState || !appState.tabs) {
+    // 檢查舊版單一分頁儲存結構進行無縫遷移
+    let legacyTasks = JSON.parse(localStorage.getItem('gemini_custom_tasks'));
+    if (!legacyTasks) {
+        legacyTasks = cloneTasks(defaultTasks);
+    } else if (legacyTasks.length < 10) {
+        for (let i = legacyTasks.length; i < 10; i++) {
+            legacyTasks.push(cloneTasks(defaultTasks[i]));
+        }
     }
-    localStorage.setItem('gemini_custom_tasks', JSON.stringify(tasks));
+    const legacyInput = localStorage.getItem('gemini_user_input') || '';
+
+    appState = {
+        activeTab: 'tabA',
+        tabs: {
+            tabA: {
+                name: '任務組 A',
+                input: legacyInput,
+                tasks: legacyTasks,
+                results: null
+            },
+            tabB: {
+                name: '任務組 B',
+                input: '',
+                tasks: cloneTasks(legacyTasks),
+                results: null
+            }
+        }
+    };
+    localStorage.setItem('gemini_app_state', JSON.stringify(appState));
+} else {
+    // 確保雙分頁結構完整
+    if (!appState.tabs.tabA) {
+        appState.tabs.tabA = { name: '任務組 A', input: '', tasks: cloneTasks(defaultTasks), results: null };
+    }
+    if (!appState.tabs.tabB) {
+        appState.tabs.tabB = { name: '任務組 B', input: '', tasks: cloneTasks(appState.tabs.tabA.tasks || defaultTasks), results: null };
+    }
+    ['tabA', 'tabB'].forEach(key => {
+        const t = appState.tabs[key];
+        if (!t.tasks || t.tasks.length < 10) {
+            t.tasks = t.tasks || [];
+            for (let i = t.tasks.length; i < 10; i++) {
+                t.tasks.push(cloneTasks(defaultTasks[i]));
+            }
+        }
+    });
+}
+
+function saveAppState() {
+    localStorage.setItem('gemini_app_state', JSON.stringify(appState));
 }
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -83,43 +131,169 @@ document.addEventListener('DOMContentLoaded', () => {
     const loader = document.querySelector('.loader');
     const resultsSection = document.getElementById('resultsSection');
 
+    // Tab 導覽列按鈕
+    const tabBtnA = document.getElementById('tabBtnA');
+    const tabBtnB = document.getElementById('tabBtnB');
+
     // Modal elements
     const settingsModal = document.getElementById('settingsModal');
     const openSettingsBtn = document.getElementById('openSettingsBtn');
     const closeModalBtn = document.getElementById('closeModalBtn');
     const saveTasksBtn = document.getElementById('saveTasksBtn');
     const tasksFormContainer = document.getElementById('tasksFormContainer');
+    const modalTabBtnA = document.getElementById('modalTabBtnA');
+    const modalTabBtnB = document.getElementById('modalTabBtnB');
+    const tabNameInput = document.getElementById('tabNameInput');
 
-    // 載入儲存的 API Key 與草稿
+    let editingModalTab = 'tabA';
+
+    // 載入儲存的 API Key
     const savedApiKey = localStorage.getItem('gemini_api_key');
     if (savedApiKey) {
         apiKeyInput.value = savedApiKey;
     }
 
-    const savedInput = localStorage.getItem('gemini_user_input');
-    if (savedInput) {
-        userInput.value = savedInput;
+    // 初始化 Tab 按鈕文字與 active 狀態
+    function updateTabButtonsUI() {
+        if (tabBtnA) tabBtnA.textContent = appState.tabs.tabA.name || '任務組 A';
+        if (tabBtnB) tabBtnB.textContent = appState.tabs.tabB.name || '任務組 B';
+
+        if (appState.activeTab === 'tabA') {
+            tabBtnA?.classList.add('active');
+            tabBtnB?.classList.remove('active');
+        } else {
+            tabBtnB?.classList.add('active');
+            tabBtnA?.classList.remove('active');
+        }
     }
 
-    // 當輸入文字時自動儲存草稿
+    // 載入當前 Tab 的輸入文字
+    function loadCurrentTabInput() {
+        const curTab = appState.tabs[appState.activeTab];
+        userInput.value = curTab.input || '';
+    }
+
+    // 還原指定 Tab 的結果卡片
+    function restoreResultsUI(tabKey) {
+        const tabData = appState.tabs[tabKey];
+        resultsSection.innerHTML = '';
+
+        if (!tabData.results || tabData.results.length === 0) {
+            resultsSection.style.display = 'none';
+            return;
+        }
+
+        resultsSection.style.display = 'flex';
+        tabData.results.forEach(res => {
+            const card = document.createElement('div');
+            card.className = 'result-card glass-panel';
+            card.id = `card-${res.taskId}`;
+            card.innerHTML = `
+                <div class="card-header">
+                    <h3 class="task-title">${res.title}</h3>
+                    <div class="header-actions">
+                        <button class="copy-btn" id="copy-${res.taskId}" title="複製結果" style="${res.rawText ? 'display: flex;' : 'display: none;'}">
+                            <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                        </button>
+                        <div class="status-indicator ${res.status || 'success'}"></div>
+                    </div>
+                </div>
+                <div class="result-content markdown-body">${res.html || res.rawText || ''}</div>
+            `;
+            resultsSection.appendChild(card);
+
+            const copyBtn = card.querySelector(`#copy-${res.taskId}`);
+            if (copyBtn && res.rawText) {
+                copyBtn.setAttribute('data-raw-text', res.rawText);
+                copyBtn.addEventListener('click', () => {
+                    const textToCopy = copyBtn.getAttribute('data-raw-text');
+                    if (textToCopy) {
+                        navigator.clipboard.writeText(textToCopy).then(() => {
+                            const originalHTML = copyBtn.innerHTML;
+                            copyBtn.innerHTML = '<svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>';
+                            copyBtn.classList.add('copied');
+                            setTimeout(() => {
+                                copyBtn.innerHTML = originalHTML;
+                                copyBtn.classList.remove('copied');
+                            }, 2000);
+                        });
+                    }
+                });
+            }
+        });
+    }
+
+    // 切換主畫面 Tab
+    function switchMainTab(targetTab) {
+        if (appState.activeTab === targetTab) return;
+        // 儲存當前輸入框文字
+        appState.tabs[appState.activeTab].input = userInput.value;
+        appState.activeTab = targetTab;
+        saveAppState();
+
+        updateTabButtonsUI();
+        loadCurrentTabInput();
+        restoreResultsUI(targetTab);
+    }
+
+    if (tabBtnA) tabBtnA.addEventListener('click', () => switchMainTab('tabA'));
+    if (tabBtnB) tabBtnB.addEventListener('click', () => switchMainTab('tabB'));
+
+    // 初始化介面狀態
+    updateTabButtonsUI();
+    loadCurrentTabInput();
+    restoreResultsUI(appState.activeTab);
+
+    // 當輸入文字時自動儲存到當前 Tab
     userInput.addEventListener('input', () => {
-        localStorage.setItem('gemini_user_input', userInput.value);
+        appState.tabs[appState.activeTab].input = userInput.value;
+        saveAppState();
     });
 
-    // 清空輸入文字按鈕
+    // 清空輸入文字按鈕 (僅清空當前 Tab)
     if (clearInputBtn) {
         clearInputBtn.addEventListener('click', () => {
             userInput.value = '';
-            localStorage.removeItem('gemini_user_input');
+            appState.tabs[appState.activeTab].input = '';
+            saveAppState();
             userInput.focus();
         });
     }
 
+    // Modal 表單資料暫存同步
+    function flushModalInputsToState() {
+        const curTab = appState.tabs[editingModalTab];
+        if (tabNameInput && tabNameInput.value.trim()) {
+            curTab.name = tabNameInput.value.trim();
+        }
+        curTab.tasks.forEach(task => {
+            const titleEl = document.getElementById(`edit-title-${task.id}`);
+            const promptEl = document.getElementById(`edit-prompt-${task.id}`);
+            if (titleEl) task.title = titleEl.value.trim();
+            if (promptEl) task.systemInstruction = promptEl.value.trim();
+        });
+    }
 
     // 渲染設定 Modal 表單
     function renderSettingsForm() {
+        if (modalTabBtnA) modalTabBtnA.textContent = appState.tabs.tabA.name || '任務組 A';
+        if (modalTabBtnB) modalTabBtnB.textContent = appState.tabs.tabB.name || '任務組 B';
+
+        if (editingModalTab === 'tabA') {
+            modalTabBtnA?.classList.add('active');
+            modalTabBtnB?.classList.remove('active');
+        } else {
+            modalTabBtnB?.classList.add('active');
+            modalTabBtnA?.classList.remove('active');
+        }
+
+        const curTab = appState.tabs[editingModalTab];
+        if (tabNameInput) {
+            tabNameInput.value = curTab.name || '';
+        }
+
         tasksFormContainer.innerHTML = '';
-        tasks.forEach((task, index) => {
+        curTab.tasks.forEach((task, index) => {
             const card = document.createElement('div');
             card.className = 'task-edit-card';
             card.innerHTML = `
@@ -133,9 +307,21 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    // Modal 分頁切換
+    function switchModalTab(targetTab) {
+        if (editingModalTab === targetTab) return;
+        flushModalInputsToState();
+        editingModalTab = targetTab;
+        renderSettingsForm();
+    }
+
+    if (modalTabBtnA) modalTabBtnA.addEventListener('click', () => switchModalTab('tabA'));
+    if (modalTabBtnB) modalTabBtnB.addEventListener('click', () => switchModalTab('tabB'));
+
     // 開關 Modal
     if (openSettingsBtn) {
         openSettingsBtn.addEventListener('click', () => {
+            editingModalTab = appState.activeTab;
             renderSettingsForm();
             settingsModal.style.display = 'flex';
         });
@@ -150,12 +336,57 @@ document.addEventListener('DOMContentLoaded', () => {
     // 儲存設定
     if (saveTasksBtn) {
         saveTasksBtn.addEventListener('click', () => {
-            tasks.forEach(task => {
-                task.title = document.getElementById(`edit-title-${task.id}`).value.trim() || task.title;
-                task.systemInstruction = document.getElementById(`edit-prompt-${task.id}`).value.trim() || task.systemInstruction;
-            });
-            localStorage.setItem('gemini_custom_tasks', JSON.stringify(tasks));
+            flushModalInputsToState();
+            saveAppState();
+            updateTabButtonsUI();
             settingsModal.style.display = 'none';
+        });
+    }
+
+    // 匯出 / 備份 Prompt
+    const exportPromptsBtn = document.getElementById('exportPromptsBtn');
+    if (exportPromptsBtn) {
+        exportPromptsBtn.addEventListener('click', () => {
+            flushModalInputsToState();
+            const currentTabPrompts = appState.tabs[editingModalTab].tasks;
+            const jsonText = JSON.stringify(currentTabPrompts, null, 2);
+            navigator.clipboard.writeText(jsonText).then(() => {
+                alert(`已複製「${appState.tabs[editingModalTab].name}」的 10 個 Prompt 備份至剪貼簿！\n您可以將它貼在筆記本中保存。`);
+            }).catch(() => {
+                prompt('請手動複製以下備份代碼：', jsonText);
+            });
+        });
+    }
+
+    // 匯入 Prompt 備份
+    const importPromptsBtn = document.getElementById('importPromptsBtn');
+    if (importPromptsBtn) {
+        importPromptsBtn.addEventListener('click', () => {
+            const pasteData = prompt('請貼上您先前備份的 Prompt 代碼 (JSON 格式)：');
+            if (!pasteData || !pasteData.trim()) return;
+
+            try {
+                const parsed = JSON.parse(pasteData.trim());
+                if (!Array.isArray(parsed) || parsed.length === 0) {
+                    alert('格式錯誤：備份內容應為任務陣列。');
+                    return;
+                }
+                const curTasks = appState.tabs[editingModalTab].tasks;
+                parsed.forEach((item, idx) => {
+                    if (idx < 10) {
+                        curTasks[idx] = {
+                            id: idx,
+                            title: item.title !== undefined ? item.title : (defaultTasks[idx]?.title || `任務 ${idx + 1}`),
+                            systemInstruction: item.systemInstruction !== undefined ? item.systemInstruction : '',
+                            temperature: item.temperature !== undefined ? item.temperature : 0.3
+                        };
+                    }
+                });
+                renderSettingsForm();
+                alert(`已成功將備份載入至「${appState.tabs[editingModalTab].name}」！請記得點擊右下角「儲存設定」。`);
+            } catch (e) {
+                alert('解析失敗，請確認貼上的文字格式正確。');
+            }
         });
     }
 
@@ -179,23 +410,31 @@ document.addEventListener('DOMContentLoaded', () => {
         // 儲存 API Key
         localStorage.setItem('gemini_api_key', apiKey);
 
+        // 當前 Tab 的任務清單
+        const currentTasks = appState.tabs[appState.activeTab].tasks;
+
         // UI 狀態更新
         executeBtn.disabled = true;
         btnText.style.display = 'none';
         loader.style.display = 'inline-block';
         resultsSection.style.display = 'flex';
-        resultsSection.innerHTML = ''; // 清空先前的結果
+        resultsSection.innerHTML = '';
 
         // 過濾掉 prompt 或標題為空的任務 (直接跳過)
-        const activeTasks = tasks.filter(task => task.systemInstruction.trim() !== '' && task.title.trim() !== '');
+        const activeTasks = currentTasks.filter(task => task.systemInstruction.trim() !== '' && task.title.trim() !== '');
 
         if (activeTasks.length === 0) {
             resultsSection.innerHTML = '<div style="text-align:center; padding: 2rem; color:var(--text-muted);">所有任務的 Prompt 皆為空，已跳過執行。請至右上角設定任務。</div>';
             executeBtn.disabled = false;
             btnText.style.display = 'inline-block';
             loader.style.display = 'none';
+            appState.tabs[appState.activeTab].results = [];
+            saveAppState();
             return;
         }
+
+        // 初始化當前 Tab 結果暫存
+        const runResults = [];
 
         // 動態生成只有啟用的卡片
         activeTasks.forEach(task => {
@@ -216,7 +455,6 @@ document.addEventListener('DOMContentLoaded', () => {
             `;
             resultsSection.appendChild(card);
 
-            // 綁定動態生成的複製按鈕事件
             const copyBtn = card.querySelector(`#copy-${task.id}`);
             copyBtn.addEventListener('click', () => {
                 const textToCopy = copyBtn.getAttribute('data-raw-text');
@@ -239,16 +477,21 @@ document.addEventListener('DOMContentLoaded', () => {
             const promises = activeTasks.map((task, index) => {
                 return new Promise(resolve => {
                     setTimeout(async () => {
-                        await callGeminiAPI(apiKey, text, task);
+                        const resObj = await callGeminiAPI(apiKey, text, task);
+                        if (resObj) runResults.push(resObj);
                         resolve();
-                    }, index * 600); // 0ms, 600ms, 1200ms...
+                    }, index * 600);
                 });
             });
             await Promise.all(promises);
+
+            // 依任務 ID 排序並持久化保存到當前 Tab
+            runResults.sort((a, b) => a.taskId - b.taskId);
+            appState.tabs[appState.activeTab].results = runResults;
+            saveAppState();
         } catch (error) {
             console.error('整體執行發生錯誤', error);
         } finally {
-            // 恢復按鈕狀態
             executeBtn.disabled = false;
             btnText.style.display = 'inline-block';
             loader.style.display = 'none';
@@ -258,9 +501,9 @@ document.addEventListener('DOMContentLoaded', () => {
     async function callGeminiAPI(apiKey, text, task, retries = 4) {
         const statusIndicator = document.getElementById(`status-${task.id}`);
         const contentDiv = document.getElementById(`content-${task.id}`);
+        const copyBtn = document.getElementById(`copy-${task.id}`);
 
         try {
-            // 根據使用者要求，使用 gemini-3.1-flash-lite 模型
             const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key=${apiKey}`;
             
             const payload = {
@@ -286,7 +529,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
             if (!response.ok) {
                 if (response.status === 429 && retries > 0) {
-                    // 如果遇到 429 Rate Limit 錯誤，等待 8 秒後自動重試
                     contentDiv.innerHTML = '<span style="color:var(--text-muted);">免費額度限制，等待 8 秒後重新嘗試中...</span>';
                     await new Promise(r => setTimeout(r, 8000));
                     return callGeminiAPI(apiKey, text, task, retries - 1);
@@ -299,24 +541,39 @@ document.addEventListener('DOMContentLoaded', () => {
             
             if (data.candidates && data.candidates.length > 0 && data.candidates[0].content.parts.length > 0) {
                 const markdownText = data.candidates[0].content.parts[0].text;
-                // 解析 markdown
-                contentDiv.innerHTML = marked.parse(markdownText);
+                const parsedHtml = marked.parse(markdownText);
+                contentDiv.innerHTML = parsedHtml;
                 statusIndicator.className = 'status-indicator success';
                 
-                // 顯示複製按鈕並儲存文字
-                const copyBtn = document.getElementById(`copy-${task.id}`);
                 if (copyBtn) {
                     copyBtn.setAttribute('data-raw-text', markdownText);
                     copyBtn.style.display = 'flex';
                 }
+
+                return {
+                    taskId: task.id,
+                    title: task.title,
+                    rawText: markdownText,
+                    html: parsedHtml,
+                    status: 'success'
+                };
             } else {
                 throw new Error('未取得有效的回傳內容');
             }
 
         } catch (error) {
             console.error(`Task ${task.id} Error:`, error);
-            contentDiv.innerHTML = `<div style="color: var(--error);">錯誤：${error.message}</div>`;
+            const errHtml = `<div style="color: var(--error);">錯誤：${error.message}</div>`;
+            contentDiv.innerHTML = errHtml;
             statusIndicator.className = 'status-indicator error';
+
+            return {
+                taskId: task.id,
+                title: task.title,
+                rawText: '',
+                html: errHtml,
+                status: 'error'
+            };
         }
     }
 });
