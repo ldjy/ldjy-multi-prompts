@@ -77,6 +77,7 @@ if (!tasks) {
 document.addEventListener('DOMContentLoaded', () => {
     const apiKeyInput = document.getElementById('apiKey');
     const userInput = document.getElementById('userInput');
+    const clearInputBtn = document.getElementById('clearInputBtn');
     const executeBtn = document.getElementById('executeBtn');
     const btnText = document.querySelector('.btn-text');
     const loader = document.querySelector('.loader');
@@ -104,6 +105,15 @@ document.addEventListener('DOMContentLoaded', () => {
     userInput.addEventListener('input', () => {
         localStorage.setItem('gemini_user_input', userInput.value);
     });
+
+    // 清空輸入文字按鈕
+    if (clearInputBtn) {
+        clearInputBtn.addEventListener('click', () => {
+            userInput.value = '';
+            localStorage.removeItem('gemini_user_input');
+            userInput.focus();
+        });
+    }
 
 
     // 渲染設定 Modal 表單
