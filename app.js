@@ -153,6 +153,179 @@ document.addEventListener('DOMContentLoaded', () => {
         apiKeyInput.value = savedApiKey;
     }
 
+    // 模型選擇相關元素
+    const modelSelect = document.getElementById('modelSelect');
+    const refreshModelsBtn = document.getElementById('refreshModelsBtn');
+    const customModelInput = document.getElementById('customModelInput');
+    const modelHelpText = document.getElementById('modelHelpText');
+
+    function getActiveModel() {
+        let selected = modelSelect?.value || 'gemini-2.0-flash';
+        if (selected === 'custom') {
+            selected = customModelInput?.value.trim() || 'gemini-2.0-flash';
+        }
+        return selected.replace('models/', '');
+    }
+
+    // 載入儲存的模型
+    const savedModel = localStorage.getItem('gemini_selected_model');
+    if (savedModel && modelSelect) {
+        const match = Array.from(modelSelect.options).some(o => o.value === savedModel);
+        if (match) {
+            modelSelect.value = savedModel;
+        } else {
+            const opt = document.createElement('option');
+            opt.value = savedModel;
+            opt.textContent = `${savedModel} (已儲存)`;
+            const customOpt = modelSelect.querySelector('option[value="custom"]');
+            if (customOpt) {
+                modelSelect.insertBefore(opt, customOpt);
+            } else {
+                modelSelect.appendChild(opt);
+            }
+            modelSelect.value = savedModel;
+        }
+    }
+
+    const savedCustomModel = localStorage.getItem('gemini_custom_model_id');
+    if (savedCustomModel && customModelInput) {
+        customModelInput.value = savedCustomModel;
+    }
+
+    if (modelSelect && customModelInput) {
+        if (modelSelect.value === 'custom') {
+            customModelInput.style.display = 'block';
+        }
+        modelSelect.addEventListener('change', () => {
+            if (modelSelect.value === 'custom') {
+                customModelInput.style.display = 'block';
+                customModelInput.focus();
+            } else {
+                customModelInput.style.display = 'none';
+            }
+            localStorage.setItem('gemini_selected_model', modelSelect.value);
+        });
+    }
+
+    if (customModelInput) {
+        customModelInput.addEventListener('input', () => {
+            localStorage.setItem('gemini_custom_model_id', customModelInput.value.trim());
+        });
+    }
+
+    async function fetchAvailableModels(apiKey, isManual = false) {
+        if (!apiKey) {
+            if (isManual) alert('請先輸入 Gemini API Key 後再重新載入模型清單！');
+            return;
+        }
+
+        if (modelHelpText) {
+            modelHelpText.textContent = '⏳ 正在向 Google 查詢可用模型清單...';
+            modelHelpText.style.color = 'var(--text-muted)';
+        }
+
+        try {
+            const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`);
+            if (!response.ok) {
+                const errData = await response.json().catch(() => ({}));
+                throw new Error(errData.error?.message || `HTTP ${response.status}`);
+            }
+
+            const data = await response.json();
+            if (data.models && Array.isArray(data.models)) {
+                // 篩選支援 generateContent 且名稱包含 gemini 的模型
+                const geminiModels = data.models.filter(m => 
+                    m.supportedGenerationMethods && 
+                    m.supportedGenerationMethods.includes('generateContent') &&
+                    m.name.toLowerCase().includes('gemini')
+                );
+
+                if (geminiModels.length > 0) {
+                    const currentSelected = localStorage.getItem('gemini_selected_model') || modelSelect.value || 'gemini-2.0-flash';
+
+                    modelSelect.innerHTML = '';
+                    
+                    // 排序：將 flash / lite 類熱門模型置頂
+                    geminiModels.sort((a, b) => {
+                        const nameA = a.name.toLowerCase();
+                        const nameB = b.name.toLowerCase();
+                        if (nameA.includes('2.5-flash') && !nameB.includes('2.5-flash')) return -1;
+                        if (!nameA.includes('2.5-flash') && nameB.includes('2.5-flash')) return 1;
+                        if (nameA.includes('2.0-flash') && !nameB.includes('2.0-flash')) return -1;
+                        if (!nameA.includes('2.0-flash') && nameB.includes('2.0-flash')) return 1;
+                        if (nameA.includes('flash') && !nameB.includes('flash')) return -1;
+                        if (!nameA.includes('flash') && nameB.includes('flash')) return 1;
+                        return nameA.localeCompare(nameB);
+                    });
+
+                    geminiModels.forEach(m => {
+                        const cleanId = m.name.replace('models/', '');
+                        const opt = document.createElement('option');
+                        opt.value = cleanId;
+                        opt.textContent = `${m.displayName || cleanId} (${cleanId})`;
+                        modelSelect.appendChild(opt);
+                    });
+
+                    const customOpt = document.createElement('option');
+                    customOpt.value = 'custom';
+                    customOpt.textContent = '✏️ 自訂輸入模型代號...';
+                    modelSelect.appendChild(customOpt);
+
+                    const hasMatch = Array.from(modelSelect.options).some(o => o.value === currentSelected);
+                    if (hasMatch) {
+                        modelSelect.value = currentSelected;
+                    } else if (currentSelected === 'custom') {
+                        modelSelect.value = 'custom';
+                    } else {
+                        const extraOpt = document.createElement('option');
+                        extraOpt.value = currentSelected;
+                        extraOpt.textContent = `${currentSelected} (已儲存)`;
+                        modelSelect.insertBefore(extraOpt, customOpt);
+                        modelSelect.value = currentSelected;
+                    }
+
+                    if (modelHelpText) {
+                        modelHelpText.textContent = `✅ 已成功向 Google 載入 ${geminiModels.length} 個可用模型！`;
+                        modelHelpText.style.color = 'var(--success)';
+                    }
+
+                    if (isManual) {
+                        alert(`成功載入 ${geminiModels.length} 個 Google Gemini 模型！`);
+                    }
+                } else {
+                    throw new Error('未找到支援文字生成的 Gemini 模型');
+                }
+            }
+        } catch (error) {
+            console.warn('載入 Google 模型清單失敗：', error);
+            if (modelHelpText) {
+                modelHelpText.textContent = `⚠️ 模型查詢失敗（${error.message}），已保留目前選單。`;
+                modelHelpText.style.color = 'var(--error)';
+            }
+            if (isManual) {
+                alert(`查詢失敗：${error.message}\n已保留目前的模型清單。`);
+            }
+        }
+    }
+
+    if (refreshModelsBtn) {
+        refreshModelsBtn.addEventListener('click', () => {
+            const apiKey = apiKeyInput.value.trim();
+            fetchAvailableModels(apiKey, true);
+        });
+    }
+
+    // 當 API Key 輸入或變更時，自動抓取一次模型清單
+    if (savedApiKey) {
+        fetchAvailableModels(savedApiKey, false);
+    }
+    apiKeyInput.addEventListener('change', () => {
+        const key = apiKeyInput.value.trim();
+        if (key) {
+            fetchAvailableModels(key, false);
+        }
+    });
+
     // 初始化 Tab 按鈕文字與 active 狀態
     function updateTabButtonsUI() {
         if (tabBtnA) tabBtnA.textContent = appState.tabs.tabA.name || '任務組 A';
@@ -504,7 +677,8 @@ document.addEventListener('DOMContentLoaded', () => {
         const copyBtn = document.getElementById(`copy-${task.id}`);
 
         try {
-            const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key=${apiKey}`;
+            const activeModel = getActiveModel();
+            const url = `https://generativelanguage.googleapis.com/v1beta/models/${activeModel}:generateContent?key=${apiKey}`;
             
             const payload = {
                 contents: [

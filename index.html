@@ -18,7 +18,7 @@
 
     <div class="container">
         <header>
-            <h1>Gemini Multi-Tasker <span style="font-size: 0.9rem; color: var(--primary);">v0.3</span></h1>
+            <h1>Gemini Multi-Tasker <span style="font-size: 0.9rem; color: var(--primary);">v0.4</span></h1>
             <p>一鍵執行多種不同任務，Prompt 為空則自動跳過</p>
             <button id="openSettingsBtn" class="secondary-btn">
                 <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
@@ -31,6 +31,24 @@
                 <label for="apiKey">Gemini API Key</label>
                 <input type="password" id="apiKey" placeholder="輸入您的 Google Gemini API Key" />
                 <p class="help-text">Key 會安全地儲存在您的瀏覽器中，不會傳送到其他地方。</p>
+            </div>
+            <div class="input-group" style="margin-top: 1rem;">
+                <div class="label-row">
+                    <label for="modelSelect">Gemini 模型選擇</label>
+                    <button type="button" id="refreshModelsBtn" class="clear-btn" title="從 Google API 重新抓取最新支援模型清單">
+                        🔄 重新載入模型清單
+                    </button>
+                </div>
+                <select id="modelSelect" class="model-select">
+                    <option value="gemini-2.0-flash">Gemini 2.0 Flash (推薦)</option>
+                    <option value="gemini-1.5-flash">Gemini 1.5 Flash</option>
+                    <option value="gemini-1.5-flash-8b">Gemini 1.5 Flash-8B (極速輕量)</option>
+                    <option value="gemini-2.0-flash-lite">Gemini 2.0 Flash Lite</option>
+                    <option value="gemini-1.5-pro">Gemini 1.5 Pro (深度推理)</option>
+                    <option value="custom">✏️ 自訂輸入模型代號...</option>
+                </select>
+                <input type="text" id="customModelInput" placeholder="輸入模型代號，例如：gemini-3.5-flash-lite" style="display: none; margin-top: 0.5rem;" />
+                <p class="help-text" id="modelHelpText">填寫 API Key 後可自動向 Google 載入最新支援模型。</p>
             </div>
         </section>
 
