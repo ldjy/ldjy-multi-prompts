@@ -76,6 +76,42 @@ function cloneTasks(tasksList) {
     return JSON.parse(JSON.stringify(tasksList));
 }
 
+function copyToClipboard(text, onSuccess, onError) {
+    if (!text) return;
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(() => {
+            if (onSuccess) onSuccess();
+        }).catch(() => {
+            fallbackCopy(text, onSuccess, onError);
+        });
+    } else {
+        fallbackCopy(text, onSuccess, onError);
+    }
+}
+
+function fallbackCopy(text, onSuccess, onError) {
+    try {
+        const textArea = document.createElement('textarea');
+        textArea.value = text;
+        textArea.style.position = 'fixed';
+        textArea.style.left = '-9999px';
+        textArea.style.top = '-9999px';
+        textArea.style.opacity = '0';
+        document.body.appendChild(textArea);
+        textArea.focus();
+        textArea.select();
+        const successful = document.execCommand('copy');
+        textArea.remove();
+        if (successful) {
+            if (onSuccess) onSuccess();
+        } else {
+            if (onError) onError();
+        }
+    } catch (err) {
+        if (onError) onError(err);
+    }
+}
+
 function generateTabId() {
     return 'tab_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7);
 }
@@ -740,12 +776,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // 綁定複製按鈕事件
         const copyBtn = card.querySelector(`#copy-${res.taskId}`);
-        if (copyBtn && res.rawText) {
-            copyBtn.setAttribute('data-raw-text', res.rawText);
+        if (copyBtn) {
+            if (res.rawText) {
+                copyBtn.setAttribute('data-raw-text', res.rawText);
+            }
             copyBtn.addEventListener('click', () => {
                 const textToCopy = copyBtn.getAttribute('data-raw-text');
                 if (textToCopy) {
-                    navigator.clipboard.writeText(textToCopy).then(() => {
+                    copyToClipboard(textToCopy, () => {
                         const originalHTML = copyBtn.innerHTML;
                         copyBtn.innerHTML = '<svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>';
                         copyBtn.classList.add('copied');
@@ -1037,9 +1075,9 @@ document.addEventListener('DOMContentLoaded', () => {
             const curTab = getTabById(editingModalTab);
             const currentTabPrompts = curTab.tasks;
             const jsonText = JSON.stringify(currentTabPrompts, null, 2);
-            navigator.clipboard.writeText(jsonText).then(() => {
+            copyToClipboard(jsonText, () => {
                 alert(`已複製「${curTab.name}」的 Prompt 備份至剪貼簿！\n您可以將它貼在筆記本中保存。`);
-            }).catch(() => {
+            }, () => {
                 prompt('請手動複製以下備份代碼：', jsonText);
             });
         });
