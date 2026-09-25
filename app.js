@@ -66,12 +66,25 @@ function cloneTasks(tasksList) {
     return JSON.parse(JSON.stringify(tasksList));
 }
 
-// 載入應用程式狀態 (支援 Tab A 與 Tab B 雙分頁架構)
-let appState = JSON.parse(localStorage.getItem('gemini_app_state'));
+function generateTabId() {
+    return 'tab_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7);
+}
 
-if (!appState || !appState.tabs) {
+// 載入應用程式狀態 (支援多分頁動態新增與刪除架構)
+let appState = null;
+try {
+    appState = JSON.parse(localStorage.getItem('gemini_app_state'));
+} catch (e) {
+    appState = null;
+}
+
+// 遷移與標準化 appState
+if (!appState || (!appState.tabs && !Array.isArray(appState.tabs))) {
     // 檢查舊版單一分頁儲存結構進行無縫遷移
-    let legacyTasks = JSON.parse(localStorage.getItem('gemini_custom_tasks'));
+    let legacyTasks = null;
+    try {
+        legacyTasks = JSON.parse(localStorage.getItem('gemini_custom_tasks'));
+    } catch (e) {}
     if (!legacyTasks) {
         legacyTasks = cloneTasks(defaultTasks);
     } else if (legacyTasks.length < 10) {
@@ -82,44 +95,104 @@ if (!appState || !appState.tabs) {
     const legacyInput = localStorage.getItem('gemini_user_input') || '';
 
     appState = {
-        activeTab: 'tabA',
-        tabs: {
-            tabA: {
+        activeTabId: 'tab_default_1',
+        tabs: [
+            {
+                id: 'tab_default_1',
                 name: '任務組 A',
                 input: legacyInput,
                 tasks: legacyTasks,
                 results: null
             },
-            tabB: {
+            {
+                id: 'tab_default_2',
                 name: '任務組 B',
                 input: '',
                 tasks: cloneTasks(legacyTasks),
                 results: null
             }
-        }
+        ]
     };
     localStorage.setItem('gemini_app_state', JSON.stringify(appState));
-} else {
-    // 確保雙分頁結構完整
-    if (!appState.tabs.tabA) {
-        appState.tabs.tabA = { name: '任務組 A', input: '', tasks: cloneTasks(defaultTasks), results: null };
+} else if (appState.tabs && !Array.isArray(appState.tabs)) {
+    // 從舊的 { tabA: {...}, tabB: {...} } 物件結構遷移為陣列
+    const tabList = [];
+    const keys = Object.keys(appState.tabs);
+    keys.forEach(k => {
+        const item = appState.tabs[k];
+        let tasks = item.tasks || cloneTasks(defaultTasks);
+        if (tasks.length < 10) {
+            for (let i = tasks.length; i < 10; i++) {
+                tasks.push(cloneTasks(defaultTasks[i]));
+            }
+        }
+        tabList.push({
+            id: k,
+            name: item.name || (k === 'tabA' ? '任務組 A' : (k === 'tabB' ? '任務組 B' : '任務組')),
+            input: item.input || '',
+            tasks: tasks,
+            results: item.results || null
+        });
+    });
+
+    const activeId = appState.activeTab || (tabList[0] ? tabList[0].id : 'tab_default_1');
+    appState = {
+        activeTabId: activeId,
+        tabs: tabList
+    };
+    localStorage.setItem('gemini_app_state', JSON.stringify(appState));
+} else if (Array.isArray(appState.tabs)) {
+    // 陣列結構防禦驗證
+    if (appState.tabs.length === 0) {
+        appState.tabs.push({
+            id: generateTabId(),
+            name: '任務組 1',
+            input: '',
+            tasks: cloneTasks(defaultTasks),
+            results: null
+        });
     }
-    if (!appState.tabs.tabB) {
-        appState.tabs.tabB = { name: '任務組 B', input: '', tasks: cloneTasks(appState.tabs.tabA.tasks || defaultTasks), results: null };
-    }
-    ['tabA', 'tabB'].forEach(key => {
-        const t = appState.tabs[key];
-        if (!t.tasks || t.tasks.length < 10) {
-            t.tasks = t.tasks || [];
-            for (let i = t.tasks.length; i < 10; i++) {
-                t.tasks.push(cloneTasks(defaultTasks[i]));
+    // 確保每個 tab 的 tasks 至少有 10 個
+    appState.tabs.forEach((tab, index) => {
+        if (!tab.id) tab.id = generateTabId();
+        if (!tab.name) tab.name = `任務組 ${index + 1}`;
+        if (!tab.tasks || tab.tasks.length < 10) {
+            tab.tasks = tab.tasks || [];
+            for (let i = tab.tasks.length; i < 10; i++) {
+                tab.tasks.push(cloneTasks(defaultTasks[i]));
             }
         }
     });
+    if (!appState.tabs.some(t => t.id === appState.activeTabId)) {
+        appState.activeTabId = appState.tabs[0].id;
+    }
 }
 
 function saveAppState() {
     localStorage.setItem('gemini_app_state', JSON.stringify(appState));
+}
+
+function getCurrentTab() {
+    if (!appState.tabs || appState.tabs.length === 0) {
+        appState.tabs = [{
+            id: generateTabId(),
+            name: '任務組 1',
+            input: '',
+            tasks: cloneTasks(defaultTasks),
+            results: null
+        }];
+        appState.activeTabId = appState.tabs[0].id;
+    }
+    let cur = appState.tabs.find(t => t.id === appState.activeTabId);
+    if (!cur) {
+        cur = appState.tabs[0];
+        appState.activeTabId = cur.id;
+    }
+    return cur;
+}
+
+function getTabById(id) {
+    return appState.tabs.find(t => t.id === id) || getCurrentTab();
 }
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -131,9 +204,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const loader = document.querySelector('.loader');
     const resultsSection = document.getElementById('resultsSection');
 
-    // Tab 導覽列按鈕
-    const tabBtnA = document.getElementById('tabBtnA');
-    const tabBtnB = document.getElementById('tabBtnB');
+    // Dynamic Tab 元素
+    const tabsNav = document.getElementById('tabsNav');
 
     // Modal elements
     const settingsModal = document.getElementById('settingsModal');
@@ -141,11 +213,11 @@ document.addEventListener('DOMContentLoaded', () => {
     const closeModalBtn = document.getElementById('closeModalBtn');
     const saveTasksBtn = document.getElementById('saveTasksBtn');
     const tasksFormContainer = document.getElementById('tasksFormContainer');
-    const modalTabBtnA = document.getElementById('modalTabBtnA');
-    const modalTabBtnB = document.getElementById('modalTabBtnB');
+    const modalTabsNav = document.getElementById('modalTabsNav');
     const tabNameInput = document.getElementById('tabNameInput');
+    const deleteTabModalBtn = document.getElementById('deleteTabModalBtn');
 
-    let editingModalTab = 'tabA';
+    let editingModalTab = appState.activeTabId;
 
     // 載入儲存的 API Key
     const savedApiKey = localStorage.getItem('gemini_api_key');
@@ -326,29 +398,130 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    // 初始化 Tab 按鈕文字與 active 狀態
-    function updateTabButtonsUI() {
-        if (tabBtnA) tabBtnA.textContent = appState.tabs.tabA.name || '任務組 A';
-        if (tabBtnB) tabBtnB.textContent = appState.tabs.tabB.name || '任務組 B';
+    // 新增分頁邏輯
+    function createNewTab(customName) {
+        const defaultName = `任務組 ${appState.tabs.length + 1}`;
+        let name = customName !== undefined ? customName : prompt('請輸入新任務組分頁名稱：', defaultName);
+        if (name === null) return null; // 使用者按取消
+        name = name.trim() || defaultName;
 
-        if (appState.activeTab === 'tabA') {
-            tabBtnA?.classList.add('active');
-            tabBtnB?.classList.remove('active');
-        } else {
-            tabBtnB?.classList.add('active');
-            tabBtnA?.classList.remove('active');
+        const newTab = {
+            id: generateTabId(),
+            name: name,
+            input: '',
+            tasks: cloneTasks(defaultTasks),
+            results: null
+        };
+
+        appState.tabs.push(newTab);
+        return newTab;
+    }
+
+    // 刪除分頁邏輯
+    function deleteTab(tabId) {
+        if (appState.tabs.length <= 1) {
+            alert('至少需保留一個任務分頁，無法刪除！');
+            return false;
         }
+
+        const targetTab = appState.tabs.find(t => t.id === tabId);
+        if (!targetTab) return false;
+
+        const ok = confirm(`確定要刪除「${targetTab.name}」分頁嗎？\n該分頁所有的輸入與任務設定將被移除。`);
+        if (!ok) return false;
+
+        const idx = appState.tabs.findIndex(t => t.id === tabId);
+        appState.tabs.splice(idx, 1);
+
+        // 若刪除的是當前主畫面選中的分頁
+        if (appState.activeTabId === tabId) {
+            const nextActive = appState.tabs[Math.max(0, idx - 1)];
+            appState.activeTabId = nextActive.id;
+        }
+
+        // 若刪除的是當前 Modal 在編輯的分頁
+        if (editingModalTab === tabId) {
+            const nextEdit = appState.tabs[Math.max(0, idx - 1)];
+            editingModalTab = nextEdit.id;
+        }
+
+        saveAppState();
+        renderMainTabs();
+        loadCurrentTabInput();
+        restoreResultsUI(appState.activeTabId);
+
+        if (settingsModal && settingsModal.style.display !== 'none') {
+            renderSettingsForm();
+        }
+        return true;
+    }
+
+    // 渲染主畫面分頁列表
+    function renderMainTabs() {
+        if (!tabsNav) return;
+        tabsNav.innerHTML = '';
+
+        appState.tabs.forEach(tab => {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = `tab-btn ${tab.id === appState.activeTabId ? 'active' : ''}`;
+            btn.dataset.tabId = tab.id;
+
+            const titleSpan = document.createElement('span');
+            titleSpan.className = 'tab-title';
+            titleSpan.textContent = tab.name;
+            titleSpan.title = tab.name;
+            btn.appendChild(titleSpan);
+
+            // 只有大於 1 個分頁時才顯示刪除按鈕
+            if (appState.tabs.length > 1) {
+                const closeBtn = document.createElement('span');
+                closeBtn.className = 'tab-close-btn';
+                closeBtn.innerHTML = '&times;';
+                closeBtn.title = `刪除「${tab.name}」分頁`;
+                closeBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    deleteTab(tab.id);
+                });
+                btn.appendChild(closeBtn);
+            }
+
+            btn.addEventListener('click', () => {
+                switchMainTab(tab.id);
+            });
+
+            tabsNav.appendChild(btn);
+        });
+
+        // 新增分頁按鈕
+        const addBtn = document.createElement('button');
+        addBtn.type = 'button';
+        addBtn.className = 'tab-add-btn';
+        addBtn.innerHTML = `<span>+ 新增分頁</span>`;
+        addBtn.title = '新增一個任務組分頁';
+        addBtn.addEventListener('click', () => {
+            getCurrentTab().input = userInput.value;
+            const newTab = createNewTab();
+            if (newTab) {
+                appState.activeTabId = newTab.id;
+                saveAppState();
+                renderMainTabs();
+                loadCurrentTabInput();
+                restoreResultsUI(newTab.id);
+            }
+        });
+        tabsNav.appendChild(addBtn);
     }
 
     // 載入當前 Tab 的輸入文字
     function loadCurrentTabInput() {
-        const curTab = appState.tabs[appState.activeTab];
+        const curTab = getCurrentTab();
         userInput.value = curTab.input || '';
     }
 
     // 還原指定 Tab 的結果卡片
-    function restoreResultsUI(tabKey) {
-        const tabData = appState.tabs[tabKey];
+    function restoreResultsUI(tabId) {
+        const tabData = getTabById(tabId);
         resultsSection.innerHTML = '';
 
         if (!tabData.results || tabData.results.length === 0) {
@@ -397,29 +570,26 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // 切換主畫面 Tab
-    function switchMainTab(targetTab) {
-        if (appState.activeTab === targetTab) return;
+    function switchMainTab(targetTabId) {
+        if (appState.activeTabId === targetTabId) return;
         // 儲存當前輸入框文字
-        appState.tabs[appState.activeTab].input = userInput.value;
-        appState.activeTab = targetTab;
+        getCurrentTab().input = userInput.value;
+        appState.activeTabId = targetTabId;
         saveAppState();
 
-        updateTabButtonsUI();
+        renderMainTabs();
         loadCurrentTabInput();
-        restoreResultsUI(targetTab);
+        restoreResultsUI(targetTabId);
     }
 
-    if (tabBtnA) tabBtnA.addEventListener('click', () => switchMainTab('tabA'));
-    if (tabBtnB) tabBtnB.addEventListener('click', () => switchMainTab('tabB'));
-
     // 初始化介面狀態
-    updateTabButtonsUI();
+    renderMainTabs();
     loadCurrentTabInput();
-    restoreResultsUI(appState.activeTab);
+    restoreResultsUI(appState.activeTabId);
 
     // 當輸入文字時自動儲存到當前 Tab
     userInput.addEventListener('input', () => {
-        appState.tabs[appState.activeTab].input = userInput.value;
+        getCurrentTab().input = userInput.value;
         saveAppState();
     });
 
@@ -427,7 +597,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (clearInputBtn) {
         clearInputBtn.addEventListener('click', () => {
             userInput.value = '';
-            appState.tabs[appState.activeTab].input = '';
+            getCurrentTab().input = '';
             saveAppState();
             userInput.focus();
         });
@@ -435,7 +605,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Modal 表單資料暫存同步
     function flushModalInputsToState() {
-        const curTab = appState.tabs[editingModalTab];
+        const curTab = getTabById(editingModalTab);
         if (tabNameInput && tabNameInput.value.trim()) {
             curTab.name = tabNameInput.value.trim();
         }
@@ -449,20 +619,52 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // 渲染設定 Modal 表單
     function renderSettingsForm() {
-        if (modalTabBtnA) modalTabBtnA.textContent = appState.tabs.tabA.name || '任務組 A';
-        if (modalTabBtnB) modalTabBtnB.textContent = appState.tabs.tabB.name || '任務組 B';
+        if (!modalTabsNav) return;
+        modalTabsNav.innerHTML = '';
 
-        if (editingModalTab === 'tabA') {
-            modalTabBtnA?.classList.add('active');
-            modalTabBtnB?.classList.remove('active');
-        } else {
-            modalTabBtnB?.classList.add('active');
-            modalTabBtnA?.classList.remove('active');
-        }
+        appState.tabs.forEach(tab => {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = `modal-tab-btn ${tab.id === editingModalTab ? 'active' : ''}`;
+            btn.textContent = tab.name;
+            btn.addEventListener('click', () => switchModalTab(tab.id));
+            modalTabsNav.appendChild(btn);
+        });
 
-        const curTab = appState.tabs[editingModalTab];
+        // Modal 中的新增按鈕
+        const modalAddBtn = document.createElement('button');
+        modalAddBtn.type = 'button';
+        modalAddBtn.className = 'modal-tab-add-btn';
+        modalAddBtn.innerHTML = '+ 新增';
+        modalAddBtn.title = '新增分頁';
+        modalAddBtn.addEventListener('click', () => {
+            flushModalInputsToState();
+            const newTab = createNewTab();
+            if (newTab) {
+                editingModalTab = newTab.id;
+                saveAppState();
+                renderSettingsForm();
+                renderMainTabs();
+            }
+        });
+        modalTabsNav.appendChild(modalAddBtn);
+
+        const curTab = getTabById(editingModalTab);
         if (tabNameInput) {
             tabNameInput.value = curTab.name || '';
+            tabNameInput.oninput = () => {
+                const val = tabNameInput.value.trim() || '未命名分頁';
+                const activeBtn = modalTabsNav.querySelector('.modal-tab-btn.active');
+                if (activeBtn) activeBtn.textContent = val;
+            };
+        }
+
+        if (deleteTabModalBtn) {
+            deleteTabModalBtn.disabled = (appState.tabs.length <= 1);
+            deleteTabModalBtn.title = appState.tabs.length <= 1 ? '最少需保留一個分頁' : '刪除此分頁';
+            deleteTabModalBtn.onclick = () => {
+                deleteTab(editingModalTab);
+            };
         }
 
         tasksFormContainer.innerHTML = '';
@@ -481,20 +683,17 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // Modal 分頁切換
-    function switchModalTab(targetTab) {
-        if (editingModalTab === targetTab) return;
+    function switchModalTab(targetTabId) {
+        if (editingModalTab === targetTabId) return;
         flushModalInputsToState();
-        editingModalTab = targetTab;
+        editingModalTab = targetTabId;
         renderSettingsForm();
     }
-
-    if (modalTabBtnA) modalTabBtnA.addEventListener('click', () => switchModalTab('tabA'));
-    if (modalTabBtnB) modalTabBtnB.addEventListener('click', () => switchModalTab('tabB'));
 
     // 開關 Modal
     if (openSettingsBtn) {
         openSettingsBtn.addEventListener('click', () => {
-            editingModalTab = appState.activeTab;
+            editingModalTab = appState.activeTabId;
             renderSettingsForm();
             settingsModal.style.display = 'flex';
         });
@@ -511,7 +710,7 @@ document.addEventListener('DOMContentLoaded', () => {
         saveTasksBtn.addEventListener('click', () => {
             flushModalInputsToState();
             saveAppState();
-            updateTabButtonsUI();
+            renderMainTabs();
             settingsModal.style.display = 'none';
         });
     }
@@ -521,10 +720,11 @@ document.addEventListener('DOMContentLoaded', () => {
     if (exportPromptsBtn) {
         exportPromptsBtn.addEventListener('click', () => {
             flushModalInputsToState();
-            const currentTabPrompts = appState.tabs[editingModalTab].tasks;
+            const curTab = getTabById(editingModalTab);
+            const currentTabPrompts = curTab.tasks;
             const jsonText = JSON.stringify(currentTabPrompts, null, 2);
             navigator.clipboard.writeText(jsonText).then(() => {
-                alert(`已複製「${appState.tabs[editingModalTab].name}」的 10 個 Prompt 備份至剪貼簿！\n您可以將它貼在筆記本中保存。`);
+                alert(`已複製「${curTab.name}」的 10 個 Prompt 備份至剪貼簿！\n您可以將它貼在筆記本中保存。`);
             }).catch(() => {
                 prompt('請手動複製以下備份代碼：', jsonText);
             });
@@ -544,7 +744,8 @@ document.addEventListener('DOMContentLoaded', () => {
                     alert('格式錯誤：備份內容應為任務陣列。');
                     return;
                 }
-                const curTasks = appState.tabs[editingModalTab].tasks;
+                const curTab = getTabById(editingModalTab);
+                const curTasks = curTab.tasks;
                 parsed.forEach((item, idx) => {
                     if (idx < 10) {
                         curTasks[idx] = {
@@ -556,7 +757,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     }
                 });
                 renderSettingsForm();
-                alert(`已成功將備份載入至「${appState.tabs[editingModalTab].name}」！請記得點擊右下角「儲存設定」。`);
+                alert(`已成功將備份載入至「${curTab.name}」！請記得點擊右下角「儲存設定」。`);
             } catch (e) {
                 alert('解析失敗，請確認貼上的文字格式正確。');
             }
@@ -584,7 +785,8 @@ document.addEventListener('DOMContentLoaded', () => {
         localStorage.setItem('gemini_api_key', apiKey);
 
         // 當前 Tab 的任務清單
-        const currentTasks = appState.tabs[appState.activeTab].tasks;
+        const curTab = getCurrentTab();
+        const currentTasks = curTab.tasks;
 
         // UI 狀態更新
         executeBtn.disabled = true;
@@ -601,7 +803,7 @@ document.addEventListener('DOMContentLoaded', () => {
             executeBtn.disabled = false;
             btnText.style.display = 'inline-block';
             loader.style.display = 'none';
-            appState.tabs[appState.activeTab].results = [];
+            curTab.results = [];
             saveAppState();
             return;
         }
@@ -660,7 +862,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             // 依任務 ID 排序並持久化保存到當前 Tab
             runResults.sort((a, b) => a.taskId - b.taskId);
-            appState.tabs[appState.activeTab].results = runResults;
+            curTab.results = runResults;
             saveAppState();
         } catch (error) {
             console.error('整體執行發生錯誤', error);
