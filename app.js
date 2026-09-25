@@ -1,64 +1,74 @@
-// 定義預設的 5 個不同的 Prompt 任務
+// 定義預設的 10 個不同的 Prompt 任務
 const defaultTasks = [
     {
         id: 0,
         title: "📝 重點摘要",
         systemInstruction: "你是一個專業的編輯。請將使用者輸入的文字摘要成 3 到 5 個重點條列（Bullet points），不要過多的廢話。",
-        temperature: 0.2
+        temperature: 0.2,
+        useCount: 0
     },
     {
         id: 1,
         title: "🇺🇸 翻譯成英文",
         systemInstruction: "你是一個專業的翻譯。請將使用者輸入的文字翻譯成道地、流暢的商業英文。只輸出翻譯結果即可。",
-        temperature: 0.1
+        temperature: 0.1,
+        useCount: 0
     },
     {
         id: 2,
         title: "🔑 提取關鍵字",
         systemInstruction: "請從使用者輸入的文字中，提取出 5-10 個最重要的關鍵字或標籤 (Tags)，以逗號分隔。",
-        temperature: 0.1
+        temperature: 0.1,
+        useCount: 0
     },
     {
         id: 3,
         title: "👔 語氣轉換 (正式/專業)",
         systemInstruction: "請將使用者輸入的文字，改寫成極度正式、專業的商業書信語氣，適合寄給客戶或高階主管。",
-        temperature: 0.4
+        temperature: 0.4,
+        useCount: 0
     },
     {
         id: 4,
         title: "📱 社群貼文產生器",
         systemInstruction: "你是一位社群小編。請將使用者輸入的文字改寫成一篇適合發布在 Facebook 或 Instagram 的活潑貼文，請加上適當的 Emoji，並在結尾加上三個 Hashtag。",
-        temperature: 0.7
+        temperature: 0.7,
+        useCount: 0
     },
     {
         id: 5,
         title: "🤔 反方辯論",
         systemInstruction: "你是一個專業的辯論家。請針對使用者輸入的觀點，提出三個強而有力的反對意見或盲點分析。",
-        temperature: 0.6
+        temperature: 0.6,
+        useCount: 0
     },
     {
         id: 6,
         title: "📚 延伸閱讀",
         systemInstruction: "請針對使用者輸入的主題，推薦 5 個適合深入研究的專有名詞或延伸閱讀方向。",
-        temperature: 0.3
+        temperature: 0.3,
+        useCount: 0
     },
     {
         id: 7,
         title: "💡 腦力激盪",
         systemInstruction: "你是一個創意總監。請根據使用者提供的想法或主題，發想出 3 到 5 個創新、有趣的擴充點子或應用場景。",
-        temperature: 0.8
+        temperature: 0.8,
+        useCount: 0
     },
     {
         id: 8,
         title: "✍️ 錯字與語句潤飾",
         systemInstruction: "你是一個專業的校稿人員。請幫忙抓出使用者輸入文字中的錯別字，並將語句潤飾得更通順、易讀。請直接輸出修改後的完整文字即可。",
-        temperature: 0.1
+        temperature: 0.1,
+        useCount: 0
     },
     {
         id: 9,
         title: "📊 情感與重點分析",
         systemInstruction: "請分析使用者輸入文字背後隱含的情感（例如：正面、負面、客觀、憤怒等），並用一句話總結這段文字的核心態度。",
-        temperature: 0.3
+        temperature: 0.3,
+        useCount: 0
     }
 ];
 
@@ -152,7 +162,7 @@ if (!appState || (!appState.tabs && !Array.isArray(appState.tabs))) {
             results: null
         });
     }
-    // 確保每個 tab 的 tasks 至少有 10 個
+    // 確保每個 tab 的 tasks 至少有 10 個且包含 useCount
     appState.tabs.forEach((tab, index) => {
         if (!tab.id) tab.id = generateTabId();
         if (!tab.name) tab.name = `任務組 ${index + 1}`;
@@ -162,6 +172,11 @@ if (!appState || (!appState.tabs && !Array.isArray(appState.tabs))) {
                 tab.tasks.push(cloneTasks(defaultTasks[i]));
             }
         }
+        tab.tasks.forEach(task => {
+            if (typeof task.useCount !== 'number') {
+                task.useCount = 0;
+            }
+        });
     });
     if (!appState.tabs.some(t => t.id === appState.activeTabId)) {
         appState.activeTabId = appState.tabs[0].id;
@@ -203,11 +218,17 @@ document.addEventListener('DOMContentLoaded', () => {
     const btnText = document.querySelector('.btn-text');
     const loader = document.querySelector('.loader');
     const resultsSection = document.getElementById('resultsSection');
+    const resultsToolbar = document.getElementById('resultsToolbar');
+    const resultsCardsContainer = document.getElementById('resultsCardsContainer');
+    const topAdoptedSummary = document.getElementById('topAdoptedSummary');
+    const sortResultsBtn = document.getElementById('sortResultsBtn');
+    const sortBtnText = document.getElementById('sortBtnText');
+    const openStatsModalBtn = document.getElementById('openStatsModalBtn');
 
     // Dynamic Tab 元素
     const tabsNav = document.getElementById('tabsNav');
 
-    // Modal elements
+    // Settings Modal elements
     const settingsModal = document.getElementById('settingsModal');
     const openSettingsBtn = document.getElementById('openSettingsBtn');
     const closeModalBtn = document.getElementById('closeModalBtn');
@@ -216,7 +237,16 @@ document.addEventListener('DOMContentLoaded', () => {
     const modalTabsNav = document.getElementById('modalTabsNav');
     const tabNameInput = document.getElementById('tabNameInput');
     const deleteTabModalBtn = document.getElementById('deleteTabModalBtn');
+    const addNewTaskBtn = document.getElementById('addNewTaskBtn');
 
+    // Stats / Leaderboard Modal elements
+    const statsModal = document.getElementById('statsModal');
+    const closeStatsModalBtn = document.getElementById('closeStatsModalBtn');
+    const closeStatsModalFooterBtn = document.getElementById('closeStatsModalFooterBtn');
+    const statsLeaderboardContainer = document.getElementById('statsLeaderboardContainer');
+    const resetAllStatsBtn = document.getElementById('resetAllStatsBtn');
+
+    let sortByAdoption = false;
     let editingModalTab = appState.activeTabId;
 
     // 載入儲存的 API Key
@@ -398,7 +428,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    // 新增分頁邏輯
+    // 新增分頁邏輯 (開新分頁時 default prompt 為空白)
     function createNewTab(customName) {
         const defaultName = `任務組 ${appState.tabs.length + 1}`;
         let name = customName !== undefined ? customName : prompt('請輸入新任務組分頁名稱：', defaultName);
@@ -409,7 +439,15 @@ document.addEventListener('DOMContentLoaded', () => {
             id: generateTabId(),
             name: name,
             input: '',
-            tasks: cloneTasks(defaultTasks),
+            tasks: [
+                {
+                    id: 0,
+                    title: '任務 1',
+                    systemInstruction: '',
+                    temperature: 0.3,
+                    useCount: 0
+                }
+            ],
             results: null
         };
 
@@ -454,6 +492,273 @@ document.addEventListener('DOMContentLoaded', () => {
             renderSettingsForm();
         }
         return true;
+    }
+
+    // 新增 Prompt 任務
+    function addNewPromptTask(tabId) {
+        const tab = getTabById(tabId);
+        if (!tab) return;
+        flushModalInputsToState();
+
+        const maxId = tab.tasks.reduce((max, t) => Math.max(max, t.id !== undefined ? t.id : 0), -1);
+        const newTaskId = maxId + 1;
+        const newTask = {
+            id: newTaskId,
+            title: `任務 ${tab.tasks.length + 1}`,
+            systemInstruction: '',
+            temperature: 0.3,
+            useCount: 0
+        };
+
+        tab.tasks.push(newTask);
+        saveAppState();
+        renderSettingsForm();
+
+        setTimeout(() => {
+            if (tasksFormContainer) {
+                tasksFormContainer.scrollTop = tasksFormContainer.scrollHeight;
+                const newTitleInput = document.getElementById(`edit-title-${newTaskId}`);
+                if (newTitleInput) newTitleInput.focus();
+            }
+        }, 100);
+    }
+
+    // 移除 Prompt 任務 (可從 Modal 或結果卡片上 X 觸發)
+    function removePromptTask(tabId, taskId) {
+        const tab = getTabById(tabId);
+        if (!tab) return;
+        if (tab.tasks.length <= 1) {
+            alert('每個分頁至少需保留一個 Prompt 任務，無法刪除！');
+            return;
+        }
+
+        const task = tab.tasks.find(t => t.id === taskId);
+        if (!task) return;
+
+        if (!confirm(`確定要移除任務「${task.title}」嗎？\n移除後下次執行將不會包含此任務。`)) {
+            return;
+        }
+
+        if (settingsModal && settingsModal.style.display !== 'none') {
+            flushModalInputsToState();
+        }
+
+        tab.tasks = tab.tasks.filter(t => t.id !== taskId);
+        if (tab.results) {
+            tab.results = tab.results.filter(r => r.taskId !== taskId);
+        }
+        saveAppState();
+
+        restoreResultsUI(appState.activeTabId);
+        if (settingsModal && settingsModal.style.display !== 'none') {
+            renderSettingsForm();
+        }
+        if (statsModal && statsModal.style.display !== 'none') {
+            renderLeaderboard();
+        }
+    }
+
+    // 浮動 +1 動畫
+    function showPlusOneAnimation(targetBtn) {
+        if (!targetBtn) return;
+        const floating = document.createElement('span');
+        floating.className = 'floating-plus-one';
+        floating.textContent = '+1';
+        targetBtn.appendChild(floating);
+        setTimeout(() => {
+            floating.remove();
+        }, 700);
+    }
+
+    // 增加或減少任務採用次數
+    function changeTaskUseCount(tabId, taskId, delta, triggerEl) {
+        const tab = getTabById(tabId);
+        if (!tab) return;
+        const task = tab.tasks.find(t => t.id === taskId);
+        if (!task) return;
+
+        const currentCount = task.useCount || 0;
+        const newCount = Math.max(0, currentCount + delta);
+        if (newCount === currentCount && delta < 0) return;
+
+        task.useCount = newCount;
+        saveAppState();
+
+        if (delta > 0 && triggerEl) {
+            showPlusOneAnimation(triggerEl);
+        }
+
+        // 更新卡片上的計數器與樣式
+        const countEl = document.getElementById(`adopt-count-${taskId}`);
+        const btnEl = document.getElementById(`adopt-${taskId}`);
+        if (countEl) countEl.textContent = newCount;
+        if (btnEl) {
+            if (newCount > 0) {
+                btnEl.classList.add('has-adoptions');
+            } else {
+                btnEl.classList.remove('has-adoptions');
+            }
+        }
+
+        // 更新所有卡片上的「最常採用」王冠標籤與頂部工具列
+        updateToolbarAndBadges(tabId);
+
+        // 若排行榜開啟中，同步重新渲染
+        if (statsModal && statsModal.style.display !== 'none') {
+            renderLeaderboard();
+        }
+    }
+
+    // 更新頂部工具列首選摘要與各卡片王冠標籤
+    function updateToolbarAndBadges(tabId) {
+        const tab = getTabById(tabId);
+        if (!tab) return;
+
+        let maxCount = 0;
+        let topTask = null;
+
+        tab.tasks.forEach(t => {
+            const c = t.useCount || 0;
+            if (c > maxCount) {
+                maxCount = c;
+                topTask = t;
+            }
+        });
+
+        if (topAdoptedSummary) {
+            if (topTask && maxCount > 0) {
+                topAdoptedSummary.innerHTML = `👑 目前首選任務：<strong>${topTask.title}</strong> (已累積採用 <strong>${maxCount}</strong> 次)`;
+            } else {
+                topAdoptedSummary.innerHTML = `💡 覺得哪個回覆好用？點擊回覆右上角「<strong>++ 採用</strong>」累積偏好！`;
+            }
+        }
+
+        tab.tasks.forEach(t => {
+            const titleContainer = document.getElementById(`title-wrap-${t.id}`);
+            if (!titleContainer) return;
+
+            let badge = titleContainer.querySelector('.top-pick-badge');
+            const isTop = (maxCount > 0 && (t.useCount || 0) === maxCount);
+
+            if (isTop) {
+                if (!badge) {
+                    badge = document.createElement('span');
+                    badge.className = 'top-pick-badge';
+                    badge.title = '本分頁最常採用的任務！';
+                    titleContainer.appendChild(badge);
+                }
+                badge.textContent = `👑 最常採用 (${maxCount}次)`;
+            } else if (badge) {
+                badge.remove();
+            }
+        });
+    }
+
+    // 依採用次數或預設順序對卡片重排
+    function applySortingToCards(tabId) {
+        if (!resultsCardsContainer) return;
+        const cards = Array.from(resultsCardsContainer.querySelectorAll('.result-card'));
+        if (cards.length === 0) return;
+
+        const tab = getTabById(tabId);
+
+        cards.sort((a, b) => {
+            const taskIdA = parseInt(a.dataset.taskId, 10);
+            const taskIdB = parseInt(b.dataset.taskId, 10);
+            if (sortByAdoption) {
+                const taskA = tab.tasks.find(t => t.id === taskIdA);
+                const taskB = tab.tasks.find(t => t.id === taskIdB);
+                const countA = taskA ? (taskA.useCount || 0) : 0;
+                const countB = taskB ? (taskB.useCount || 0) : 0;
+                if (countB !== countA) return countB - countA;
+                return taskIdA - taskIdB;
+            } else {
+                return taskIdA - taskIdB;
+            }
+        });
+
+        cards.forEach(card => resultsCardsContainer.appendChild(card));
+    }
+
+    // 建立結果卡片元素 (包含 ++ 採用、複製、X 移除)
+    function createResultCard(tabId, res, task) {
+        const tab = getTabById(tabId);
+        const taskObj = task || tab.tasks.find(t => t.id === res.taskId) || { id: res.taskId, title: res.title, useCount: 0 };
+        const useCount = taskObj.useCount || 0;
+
+        const card = document.createElement('div');
+        card.className = 'result-card glass-panel';
+        card.id = `card-${res.taskId}`;
+        card.dataset.taskId = res.taskId;
+
+        card.innerHTML = `
+            <div class="card-header">
+                <div class="title-with-badge" id="title-wrap-${res.taskId}" style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+                    <h3 class="task-title" id="title-${res.taskId}">${res.title}</h3>
+                </div>
+                <div class="header-actions">
+                    <button type="button" class="adopt-btn ${useCount > 0 ? 'has-adoptions' : ''}" id="adopt-${res.taskId}" data-task-id="${res.taskId}" title="採用此回覆 (點擊 +1，右鍵 -1)">
+                        <span class="adopt-plus">++</span>
+                        <span class="adopt-label">採用</span>
+                        <span class="adopt-count" id="adopt-count-${res.taskId}">${useCount}</span>
+                    </button>
+                    <button class="copy-btn" id="copy-${res.taskId}" title="複製結果" style="${res.rawText ? 'display: flex;' : 'display: none;'}">
+                        <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                    </button>
+                    <button type="button" class="remove-task-card-btn" id="remove-task-${res.taskId}" title="從本分頁移除此 Prompt 任務">&times;</button>
+                    <div class="status-indicator ${res.status || 'loading'}" id="status-${res.taskId}"></div>
+                </div>
+            </div>
+            <div class="result-content markdown-body" id="content-${res.taskId}">${res.html || res.rawText || (res.status === 'loading' ? '正在處理中...' : '')}</div>
+        `;
+
+        // 綁定採用 ++ 按鈕事件
+        const adoptBtn = card.querySelector(`#adopt-${res.taskId}`);
+        if (adoptBtn) {
+            adoptBtn.addEventListener('click', () => {
+                changeTaskUseCount(tabId, res.taskId, 1, adoptBtn);
+                if (sortByAdoption) {
+                    applySortingToCards(tabId);
+                }
+            });
+            adoptBtn.addEventListener('contextmenu', (e) => {
+                e.preventDefault();
+                changeTaskUseCount(tabId, res.taskId, -1, adoptBtn);
+                if (sortByAdoption) {
+                    applySortingToCards(tabId);
+                }
+            });
+        }
+
+        // 綁定卡片右上角 X 移除任務按鈕
+        const removeBtn = card.querySelector(`#remove-task-${res.taskId}`);
+        if (removeBtn) {
+            removeBtn.addEventListener('click', () => {
+                removePromptTask(tabId, res.taskId);
+            });
+        }
+
+        // 綁定複製按鈕事件
+        const copyBtn = card.querySelector(`#copy-${res.taskId}`);
+        if (copyBtn && res.rawText) {
+            copyBtn.setAttribute('data-raw-text', res.rawText);
+            copyBtn.addEventListener('click', () => {
+                const textToCopy = copyBtn.getAttribute('data-raw-text');
+                if (textToCopy) {
+                    navigator.clipboard.writeText(textToCopy).then(() => {
+                        const originalHTML = copyBtn.innerHTML;
+                        copyBtn.innerHTML = '<svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>';
+                        copyBtn.classList.add('copied');
+                        setTimeout(() => {
+                            copyBtn.innerHTML = originalHTML;
+                            copyBtn.classList.remove('copied');
+                        }, 2000);
+                    });
+                }
+            });
+        }
+
+        return card;
     }
 
     // 渲染主畫面分頁列表
@@ -522,7 +827,8 @@ document.addEventListener('DOMContentLoaded', () => {
     // 還原指定 Tab 的結果卡片
     function restoreResultsUI(tabId) {
         const tabData = getTabById(tabId);
-        resultsSection.innerHTML = '';
+        if (!resultsCardsContainer) return;
+        resultsCardsContainer.innerHTML = '';
 
         if (!tabData.results || tabData.results.length === 0) {
             resultsSection.style.display = 'none';
@@ -530,43 +836,16 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         resultsSection.style.display = 'flex';
-        tabData.results.forEach(res => {
-            const card = document.createElement('div');
-            card.className = 'result-card glass-panel';
-            card.id = `card-${res.taskId}`;
-            card.innerHTML = `
-                <div class="card-header">
-                    <h3 class="task-title">${res.title}</h3>
-                    <div class="header-actions">
-                        <button class="copy-btn" id="copy-${res.taskId}" title="複製結果" style="${res.rawText ? 'display: flex;' : 'display: none;'}">
-                            <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
-                        </button>
-                        <div class="status-indicator ${res.status || 'success'}"></div>
-                    </div>
-                </div>
-                <div class="result-content markdown-body">${res.html || res.rawText || ''}</div>
-            `;
-            resultsSection.appendChild(card);
+        updateToolbarAndBadges(tabId);
 
-            const copyBtn = card.querySelector(`#copy-${res.taskId}`);
-            if (copyBtn && res.rawText) {
-                copyBtn.setAttribute('data-raw-text', res.rawText);
-                copyBtn.addEventListener('click', () => {
-                    const textToCopy = copyBtn.getAttribute('data-raw-text');
-                    if (textToCopy) {
-                        navigator.clipboard.writeText(textToCopy).then(() => {
-                            const originalHTML = copyBtn.innerHTML;
-                            copyBtn.innerHTML = '<svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>';
-                            copyBtn.classList.add('copied');
-                            setTimeout(() => {
-                                copyBtn.innerHTML = originalHTML;
-                                copyBtn.classList.remove('copied');
-                            }, 2000);
-                        });
-                    }
-                });
-            }
+        tabData.results.forEach(res => {
+            const card = createResultCard(tabId, res);
+            resultsCardsContainer.appendChild(card);
         });
+
+        if (sortByAdoption) {
+            applySortingToCards(tabId);
+        }
     }
 
     // 切換主畫面 Tab
@@ -671,14 +950,49 @@ document.addEventListener('DOMContentLoaded', () => {
         curTab.tasks.forEach((task, index) => {
             const card = document.createElement('div');
             card.className = 'task-edit-card';
+            const count = task.useCount || 0;
             card.innerHTML = `
-                <h4>任務 ${index + 1}</h4>
+                <div class="task-edit-header">
+                    <h4>任務 ${index + 1}</h4>
+                    <div class="task-stats-badge">
+                        <span>🏆 採用：<strong>${count}</strong> 次</span>
+                        ${count > 0 ? `<button type="button" class="reset-count-btn" data-task-id="${task.id}" title="將此任務採用次數歸零">歸零</button>` : ''}
+                        <button type="button" class="delete-task-prompt-btn" data-task-id="${task.id}" title="移除此 Prompt 任務">✕ 移除</button>
+                    </div>
+                </div>
                 <label>按鈕與卡片標題</label>
                 <input type="text" id="edit-title-${task.id}" value="${task.title}" placeholder="例如：📝 重點摘要">
                 <label>給 AI 的系統提示詞 (System Prompt)</label>
                 <textarea id="edit-prompt-${task.id}" rows="3" placeholder="告訴 AI 它應該扮演什麼角色以及要做什麼...">${task.systemInstruction}</textarea>
             `;
             tasksFormContainer.appendChild(card);
+        });
+
+        // 綁定卡片上的移除與歸零按鈕
+        tasksFormContainer.querySelectorAll('.delete-task-prompt-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const taskId = parseInt(btn.dataset.taskId, 10);
+                removePromptTask(editingModalTab, taskId);
+            });
+        });
+
+        tasksFormContainer.querySelectorAll('.reset-count-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const taskId = parseInt(btn.dataset.taskId, 10);
+                const task = curTab.tasks.find(t => t.id === taskId);
+                if (task && confirm(`確定要將「${task.title}」的採用次數歸零嗎？`)) {
+                    task.useCount = 0;
+                    saveAppState();
+                    renderSettingsForm();
+                    updateToolbarAndBadges(appState.activeTabId);
+                }
+            });
+        });
+    }
+
+    if (addNewTaskBtn) {
+        addNewTaskBtn.addEventListener('click', () => {
+            addNewPromptTask(editingModalTab);
         });
     }
 
@@ -724,7 +1038,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const currentTabPrompts = curTab.tasks;
             const jsonText = JSON.stringify(currentTabPrompts, null, 2);
             navigator.clipboard.writeText(jsonText).then(() => {
-                alert(`已複製「${curTab.name}」的 10 個 Prompt 備份至剪貼簿！\n您可以將它貼在筆記本中保存。`);
+                alert(`已複製「${curTab.name}」的 Prompt 備份至剪貼簿！\n您可以將它貼在筆記本中保存。`);
             }).catch(() => {
                 prompt('請手動複製以下備份代碼：', jsonText);
             });
@@ -747,14 +1061,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 const curTab = getTabById(editingModalTab);
                 const curTasks = curTab.tasks;
                 parsed.forEach((item, idx) => {
-                    if (idx < 10) {
-                        curTasks[idx] = {
-                            id: idx,
-                            title: item.title !== undefined ? item.title : (defaultTasks[idx]?.title || `任務 ${idx + 1}`),
-                            systemInstruction: item.systemInstruction !== undefined ? item.systemInstruction : '',
-                            temperature: item.temperature !== undefined ? item.temperature : 0.3
-                        };
-                    }
+                    curTasks[idx] = {
+                        id: idx,
+                        title: item.title !== undefined ? item.title : `任務 ${idx + 1}`,
+                        systemInstruction: item.systemInstruction !== undefined ? item.systemInstruction : '',
+                        temperature: item.temperature !== undefined ? item.temperature : 0.3,
+                        useCount: item.useCount !== undefined ? item.useCount : 0
+                    };
                 });
                 renderSettingsForm();
                 alert(`已成功將備份載入至「${curTab.name}」！請記得點擊右下角「儲存設定」。`);
@@ -764,6 +1077,148 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    // 渲染排行榜內容
+    function renderLeaderboard() {
+        if (!statsLeaderboardContainer) return;
+        const curTab = getCurrentTab();
+        const tasks = [...curTab.tasks];
+
+        const totalAdoptions = tasks.reduce((sum, t) => sum + (t.useCount || 0), 0);
+        tasks.sort((a, b) => (b.useCount || 0) - (a.useCount || 0));
+
+        const topTask = tasks[0];
+        const topCount = topTask ? (topTask.useCount || 0) : 0;
+
+        let summaryHtml = '';
+        if (totalAdoptions > 0 && topCount > 0) {
+            const percent = Math.round((topCount / totalAdoptions) * 100);
+            summaryHtml = `
+                <div class="leaderboard-summary">
+                    <div class="leaderboard-summary-title">📈 採用偏好分析</div>
+                    <div class="leaderboard-summary-highlight">
+                        最適合您的任務是「${topTask.title}」
+                    </div>
+                    <div style="font-size: 0.85rem; color: var(--text-muted);">
+                        本分頁累計採用 ${totalAdoptions} 次，該任務採用 ${topCount} 次（佔比 ${percent}%）。
+                    </div>
+                </div>
+            `;
+        } else {
+            summaryHtml = `
+                <div class="leaderboard-summary">
+                    <div class="leaderboard-summary-title">💡 尚無採用紀錄</div>
+                    <div style="font-size: 0.9rem; color: var(--text-muted);">
+                        在每次執行結果後，點擊您滿意回覆旁的「++ 採用」按鈕，系統將自動為您統計最常使用的任務！
+                    </div>
+                </div>
+            `;
+        }
+
+        let listHtml = '<div class="leaderboard-list">';
+        tasks.forEach((task, index) => {
+            const count = task.useCount || 0;
+            const percent = totalAdoptions > 0 ? Math.round((count / totalAdoptions) * 100) : 0;
+            let rankBadge = `${index + 1}`;
+            if (index === 0 && count > 0) rankBadge = '🥇';
+            else if (index === 1 && count > 0) rankBadge = '🥈';
+            else if (index === 2 && count > 0) rankBadge = '🥉';
+
+            listHtml += `
+                <div class="leaderboard-item ${index === 0 && count > 0 ? 'rank-1' : ''}">
+                    <div class="leaderboard-header-row">
+                        <div class="leaderboard-title-group">
+                            <span class="leaderboard-rank">${rankBadge}</span>
+                            <span class="leaderboard-task-title">${task.title}</span>
+                        </div>
+                        <div class="leaderboard-count-group">
+                            <span class="leaderboard-count-text">${count} 次 (${percent}%)</span>
+                            <button type="button" class="quick-btn plus-btn" data-task-id="${task.id}" title="採用 +1">+1</button>
+                            ${count > 0 ? `<button type="button" class="quick-btn reset-btn" data-task-id="${task.id}" title="將此項採用歸零">歸零</button>` : ''}
+                        </div>
+                    </div>
+                    <div class="leaderboard-progress-bg">
+                        <div class="leaderboard-progress-fill" style="width: ${percent}%;"></div>
+                    </div>
+                </div>
+            `;
+        });
+        listHtml += '</div>';
+
+        statsLeaderboardContainer.innerHTML = summaryHtml + listHtml;
+
+        statsLeaderboardContainer.querySelectorAll('.plus-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const taskId = parseInt(btn.dataset.taskId, 10);
+                changeTaskUseCount(appState.activeTabId, taskId, 1, btn);
+                renderLeaderboard();
+            });
+        });
+
+        statsLeaderboardContainer.querySelectorAll('.reset-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const taskId = parseInt(btn.dataset.taskId, 10);
+                const task = curTab.tasks.find(t => t.id === taskId);
+                if (task && confirm(`確定要將「${task.title}」的採用次數歸零嗎？`)) {
+                    task.useCount = 0;
+                    saveAppState();
+                    updateToolbarAndBadges(appState.activeTabId);
+                    const countEl = document.getElementById(`adopt-count-${taskId}`);
+                    const btnEl = document.getElementById(`adopt-${taskId}`);
+                    if (countEl) countEl.textContent = '0';
+                    if (btnEl) btnEl.classList.remove('has-adoptions');
+                    renderLeaderboard();
+                }
+            });
+        });
+    }
+
+    if (sortResultsBtn) {
+        sortResultsBtn.addEventListener('click', () => {
+            sortByAdoption = !sortByAdoption;
+            if (sortByAdoption) {
+                sortResultsBtn.classList.add('active');
+                sortBtnText.textContent = '🔢 恢復預設順序';
+            } else {
+                sortResultsBtn.classList.remove('active');
+                sortBtnText.textContent = '📊 依採用次數排序';
+            }
+            applySortingToCards(appState.activeTabId);
+        });
+    }
+
+    if (openStatsModalBtn) {
+        openStatsModalBtn.addEventListener('click', () => {
+            renderLeaderboard();
+            statsModal.style.display = 'flex';
+        });
+    }
+
+    if (closeStatsModalBtn) {
+        closeStatsModalBtn.addEventListener('click', () => {
+            statsModal.style.display = 'none';
+        });
+    }
+
+    if (closeStatsModalFooterBtn) {
+        closeStatsModalFooterBtn.addEventListener('click', () => {
+            statsModal.style.display = 'none';
+        });
+    }
+
+    if (resetAllStatsBtn) {
+        resetAllStatsBtn.addEventListener('click', () => {
+            const curTab = getCurrentTab();
+            if (confirm(`確定要將「${curTab.name}」分頁內所有任務的採用次數全部歸零嗎？`)) {
+                curTab.tasks.forEach(t => { t.useCount = 0; });
+                saveAppState();
+                restoreResultsUI(appState.activeTabId);
+                renderLeaderboard();
+                if (settingsModal && settingsModal.style.display !== 'none') {
+                    renderSettingsForm();
+                }
+            }
+        });
+    }
 
     executeBtn.addEventListener('click', async () => {
         const apiKey = apiKeyInput.value.trim();
@@ -793,13 +1248,14 @@ document.addEventListener('DOMContentLoaded', () => {
         btnText.style.display = 'none';
         loader.style.display = 'inline-block';
         resultsSection.style.display = 'flex';
-        resultsSection.innerHTML = '';
+        if (resultsCardsContainer) resultsCardsContainer.innerHTML = '';
+        updateToolbarAndBadges(appState.activeTabId);
 
         // 過濾掉 prompt 或標題為空的任務 (直接跳過)
         const activeTasks = currentTasks.filter(task => task.systemInstruction.trim() !== '' && task.title.trim() !== '');
 
         if (activeTasks.length === 0) {
-            resultsSection.innerHTML = '<div style="text-align:center; padding: 2rem; color:var(--text-muted);">所有任務的 Prompt 皆為空，已跳過執行。請至右上角設定任務。</div>';
+            resultsCardsContainer.innerHTML = '<div style="text-align:center; padding: 2rem; color:var(--text-muted);">所有任務的 Prompt 皆為空，已跳過執行。請至右上角設定任務。</div>';
             executeBtn.disabled = false;
             btnText.style.display = 'inline-block';
             loader.style.display = 'none';
@@ -813,39 +1269,20 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // 動態生成只有啟用的卡片
         activeTasks.forEach(task => {
-            const card = document.createElement('div');
-            card.className = 'result-card glass-panel';
-            card.id = `card-${task.id}`;
-            card.innerHTML = `
-                <div class="card-header">
-                    <h3 class="task-title" id="title-${task.id}">${task.title}</h3>
-                    <div class="header-actions">
-                        <button class="copy-btn" id="copy-${task.id}" title="複製結果" style="display: none;">
-                            <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
-                        </button>
-                        <div class="status-indicator loading" id="status-${task.id}"></div>
-                    </div>
-                </div>
-                <div class="result-content markdown-body" id="content-${task.id}">正在處理中...</div>
-            `;
-            resultsSection.appendChild(card);
-
-            const copyBtn = card.querySelector(`#copy-${task.id}`);
-            copyBtn.addEventListener('click', () => {
-                const textToCopy = copyBtn.getAttribute('data-raw-text');
-                if (textToCopy) {
-                    navigator.clipboard.writeText(textToCopy).then(() => {
-                        const originalHTML = copyBtn.innerHTML;
-                        copyBtn.innerHTML = '<svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>';
-                        copyBtn.classList.add('copied');
-                        setTimeout(() => {
-                            copyBtn.innerHTML = originalHTML;
-                            copyBtn.classList.remove('copied');
-                        }, 2000);
-                    });
-                }
-            });
+            const placeholderRes = {
+                taskId: task.id,
+                title: task.title,
+                rawText: '',
+                html: '',
+                status: 'loading'
+            };
+            const card = createResultCard(appState.activeTabId, placeholderRes, task);
+            resultsCardsContainer.appendChild(card);
         });
+
+        if (sortByAdoption) {
+            applySortingToCards(appState.activeTabId);
+        }
 
         try {
             // 錯開每個請求的發送時間 (每個延遲 600 毫秒) 來避免一次性觸發 Google API 的併發次數限制
@@ -864,6 +1301,10 @@ document.addEventListener('DOMContentLoaded', () => {
             runResults.sort((a, b) => a.taskId - b.taskId);
             curTab.results = runResults;
             saveAppState();
+            updateToolbarAndBadges(appState.activeTabId);
+            if (sortByAdoption) {
+                applySortingToCards(appState.activeTabId);
+            }
         } catch (error) {
             console.error('整體執行發生錯誤', error);
         } finally {

@@ -737,3 +737,393 @@ textarea {
     outline: none;
     border-color: var(--primary);
 }
+
+/* Results Toolbar */
+.results-toolbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.75rem 1.25rem;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    background: rgba(30, 41, 59, 0.45);
+    border: 1px solid var(--glass-border);
+    border-radius: 12px;
+    margin-bottom: 0.5rem;
+}
+
+.toolbar-left {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.9rem;
+    color: var(--text-color);
+}
+
+.toolbar-stats-text {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    color: var(--text-muted);
+}
+
+.toolbar-stats-text strong {
+    color: #fbbf24;
+}
+
+.toolbar-right {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+
+.toolbar-btn {
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid var(--glass-border);
+    color: var(--text-muted);
+    padding: 0.45rem 0.85rem;
+    border-radius: 8px;
+    font-size: 0.85rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+}
+
+.toolbar-btn:hover {
+    color: var(--text-color);
+    background: rgba(255, 255, 255, 0.1);
+    border-color: rgba(255, 255, 255, 0.2);
+}
+
+.toolbar-btn.active {
+    color: #60a5fa;
+    border-color: rgba(96, 165, 250, 0.5);
+    background: rgba(59, 130, 246, 0.15);
+}
+
+.results-cards-container {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+}
+
+/* Adopt Button (++ / 採用) */
+.adopt-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid var(--glass-border);
+    color: var(--text-muted);
+    padding: 0.35rem 0.75rem;
+    border-radius: 20px;
+    font-size: 0.85rem;
+    font-weight: 600;
+    cursor: pointer;
+    position: relative;
+    user-select: none;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.adopt-btn:hover {
+    border-color: rgba(96, 165, 250, 0.6);
+    background: rgba(59, 130, 246, 0.15);
+    color: #60a5fa;
+    transform: translateY(-1px);
+}
+
+.adopt-btn:active {
+    transform: scale(0.94);
+}
+
+.adopt-btn.has-adoptions {
+    background: rgba(16, 185, 129, 0.12);
+    border-color: rgba(16, 185, 129, 0.4);
+    color: #34d399;
+}
+
+.adopt-btn.has-adoptions:hover {
+    background: rgba(16, 185, 129, 0.22);
+    border-color: #10b981;
+}
+
+.adopt-plus {
+    font-weight: 800;
+    font-size: 0.95rem;
+    letter-spacing: -1px;
+}
+
+.adopt-label {
+    font-size: 0.8rem;
+}
+
+.adopt-count {
+    background: rgba(0, 0, 0, 0.35);
+    padding: 0.1rem 0.5rem;
+    border-radius: 12px;
+    font-size: 0.78rem;
+    font-weight: 700;
+    min-width: 1.2rem;
+    text-align: center;
+}
+
+.adopt-btn.has-adoptions .adopt-count {
+    background: rgba(16, 185, 129, 0.3);
+    color: #ecfdf5;
+}
+
+/* Floating +1 animation */
+.floating-plus-one {
+    position: absolute;
+    top: -12px;
+    right: 8px;
+    font-weight: 800;
+    font-size: 13px;
+    color: #34d399;
+    pointer-events: none;
+    animation: floatUpFade 0.7s ease-out forwards;
+    z-index: 10;
+}
+
+@keyframes floatUpFade {
+    0% {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+    40% {
+        opacity: 1;
+        transform: translateY(-10px) scale(1.3);
+    }
+    100% {
+        opacity: 0;
+        transform: translateY(-24px) scale(0.8);
+    }
+}
+
+/* Top Pick Badge on Card */
+.top-pick-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    background: linear-gradient(135deg, rgba(245, 158, 11, 0.2), rgba(234, 179, 8, 0.1));
+    border: 1px solid rgba(245, 158, 11, 0.5);
+    color: #fbbf24;
+    font-size: 0.75rem;
+    font-weight: 600;
+    padding: 0.2rem 0.55rem;
+    border-radius: 12px;
+    margin-left: 0.5rem;
+    box-shadow: 0 0 10px rgba(245, 158, 11, 0.2);
+    vertical-align: middle;
+}
+
+/* Leaderboard Modal */
+.leaderboard-summary {
+    background: linear-gradient(135deg, rgba(59, 130, 246, 0.12), rgba(139, 92, 246, 0.12));
+    border: 1px solid rgba(96, 165, 250, 0.3);
+    border-radius: 10px;
+    padding: 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+}
+
+.leaderboard-summary-title {
+    font-size: 0.85rem;
+    color: var(--text-muted);
+}
+
+.leaderboard-summary-highlight {
+    font-size: 1.05rem;
+    font-weight: 700;
+    color: #f8fafc;
+}
+
+.leaderboard-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    margin-top: 0.5rem;
+}
+
+.leaderboard-item {
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid var(--glass-border);
+    border-radius: 8px;
+    padding: 0.75rem 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.45rem;
+    transition: all 0.2s ease;
+}
+
+.leaderboard-item:hover {
+    border-color: rgba(255, 255, 255, 0.2);
+    background: rgba(255, 255, 255, 0.05);
+}
+
+.leaderboard-item.rank-1 {
+    border-color: rgba(245, 158, 11, 0.5);
+    background: rgba(245, 158, 11, 0.06);
+}
+
+.leaderboard-header-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.leaderboard-title-group {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    min-width: 0;
+}
+
+.leaderboard-rank {
+    font-size: 1rem;
+    font-weight: 700;
+    min-width: 1.5rem;
+}
+
+.leaderboard-task-title {
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: var(--text-color);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.leaderboard-count-group {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.leaderboard-count-text {
+    font-size: 0.85rem;
+    font-weight: 700;
+    color: #34d399;
+}
+
+.quick-btn {
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid var(--glass-border);
+    color: var(--text-muted);
+    padding: 0.2rem 0.5rem;
+    border-radius: 6px;
+    font-size: 0.75rem;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.quick-btn:hover {
+    color: white;
+    background: rgba(255, 255, 255, 0.2);
+}
+
+.leaderboard-progress-bg {
+    width: 100%;
+    height: 6px;
+    background: rgba(255, 255, 255, 0.08);
+    border-radius: 3px;
+    overflow: hidden;
+}
+
+.leaderboard-progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #3b82f6, #10b981);
+    border-radius: 3px;
+    transition: width 0.3s ease;
+}
+
+.leaderboard-item.rank-1 .leaderboard-progress-fill {
+    background: linear-gradient(90deg, #f59e0b, #10b981);
+}
+
+/* Settings Modal task stats badge */
+.task-edit-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.75rem;
+}
+
+.task-edit-header h4 {
+    margin-bottom: 0;
+}
+
+.task-stats-badge {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.8rem;
+    color: var(--text-muted);
+}
+
+.task-stats-badge strong {
+    color: #34d399;
+}
+
+.reset-count-btn {
+    background: transparent;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    color: var(--text-muted);
+    font-size: 0.7rem;
+    padding: 0.15rem 0.4rem;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.reset-count-btn:hover {
+    color: #ef4444;
+    border-color: rgba(239, 68, 68, 0.4);
+    background: rgba(239, 68, 68, 0.1);
+}
+
+.remove-task-card-btn {
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    font-size: 1.15rem;
+    cursor: pointer;
+    padding: 2px 6px;
+    border-radius: 4px;
+    line-height: 1;
+    transition: all 0.2s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.remove-task-card-btn:hover {
+    color: #ef4444;
+    background: rgba(239, 68, 68, 0.15);
+    transform: scale(1.15);
+}
+
+.delete-task-prompt-btn {
+    background: rgba(239, 68, 68, 0.1);
+    border: 1px solid rgba(239, 68, 68, 0.3);
+    color: #f87171;
+    font-size: 0.75rem;
+    padding: 0.2rem 0.55rem;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+}
+
+.delete-task-prompt-btn:hover {
+    background: rgba(239, 68, 68, 0.25);
+    border-color: #ef4444;
+    color: #fca5a5;
+}
