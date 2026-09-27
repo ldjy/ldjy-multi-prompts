@@ -1270,12 +1270,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // ===== v12 效能改善（2026-09-27）=====
     // 1) 串流輸出：回覆邊生成邊顯示，不用等整篇寫完
-    // 2) 併發上限：同時最多 N 個請求（預設 3），其他排隊，避免一次打爆免費額度 → 大量 429
+    // 2) 自適應併發：一開始全部同時送（上限 10），一旦遇到 429 就把同時請求數砍半，之後的任務排隊
     // 3) 逾時：45 秒沒收到任何資料或總時間 180 秒就中止並重試，不會永遠卡在「正在處理中」
     // 4) 重試：429/5xx/網路錯誤/逾時 指數退避＋抖動，優先採用 Google 回傳的 retryDelay
     // 5) 思考模式：2.5-flash 關閉思考、3.x 用 low，大幅縮短首字時間；模型不支援時自動拿掉重送
     // 6) 切換分頁不會中斷或錯寫到別的分頁；結果即時寫回所屬分頁
-    const MAX_CONCURRENCY = Math.max(1, parseInt(localStorage.getItem('gemini_max_concurrency') || '3', 10) || 3);
+    const MAX_CONCURRENCY = Math.max(1, parseInt(localStorage.getItem('gemini_max_concurrency') || '10', 10) || 10);
     const IDLE_TIMEOUT_MS = 45000;
     const TOTAL_TIMEOUT_MS = 180000;
     const MAX_RETRIES = 4;
@@ -1372,7 +1372,7 @@ document.addEventListener('DOMContentLoaded', () => {
             taskId: task.id,
             title: task.title,
             rawText: '',
-            html: i < MAX_CONCURRENCY ? '' : '<span style="color:var(--text-muted);">排隊中…</span>',
+            html: i < Math.min(MAX_CONCURRENCY, activeTasks.length) ? '' : '<span style="color:var(--text-muted);">排隊中…</span>',
             status: 'loading'
         }));
 
@@ -1388,13 +1388,22 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const startedAt = performance.now();
         try {
-            // 併發池：同時最多 MAX_CONCURRENCY 個請求
+            // 自適應併發池：limit 起始 = min(MAX_CONCURRENCY, 任務數)，遇 429 由 callGeminiAPI 砍半
+            const runCtl = { limit: Math.min(MAX_CONCURRENCY, activeTasks.length), running: 0 };
             let next = 0;
             const worker = async () => {
                 while (next < activeTasks.length) {
                     const idx = next++;
-                    const resObj = await callGeminiAPI(apiKey, text, activeTasks[idx], runTabId, liveList[idx], activeModel);
-                    Object.assign(liveList[idx], resObj);
+                    while (runCtl.running >= runCtl.limit) {
+                        await new Promise(r => setTimeout(r, 150));
+                    }
+                    runCtl.running++;
+                    try {
+                        const resObj = await callGeminiAPI(apiKey, text, activeTasks[idx], runTabId, liveList[idx], activeModel, runCtl);
+                        Object.assign(liveList[idx], resObj);
+                    } finally {
+                        runCtl.running--;
+                    }
                     saveAppState();
                 }
             };
@@ -1402,7 +1411,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             curTab.results.sort((a, b) => a.taskId - b.taskId);
             saveAppState();
-            console.info(`[multi-prompt] ${activeTasks.length} 個任務完成，耗時 ${((performance.now() - startedAt) / 1000).toFixed(1)} 秒（模型 ${activeModel}，併發 ${MAX_CONCURRENCY}）`);
+            console.info(`[multi-prompt] ${activeTasks.length} 個任務完成，耗時 ${((performance.now() - startedAt) / 1000).toFixed(1)} 秒（模型 ${activeModel}，最終併發 ${runCtl.limit}）`);
             if (appState.activeTabId === runTabId) {
                 updateToolbarAndBadges(runTabId);
                 if (sortByAdoption) {
@@ -1418,7 +1427,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    async function callGeminiAPI(apiKey, text, task, tabId, liveRes, activeModel) {
+    async function callGeminiAPI(apiKey, text, task, tabId, liveRes, activeModel, runCtl) {
         const live = liveRes || { taskId: task.id, title: task.title, rawText: '', html: '', status: 'loading' };
         const model = activeModel || getActiveModel();
 
@@ -1451,6 +1460,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 return { taskId: task.id, title: task.title, rawText: markdownText, html: parsedHtml, status: 'success' };
             } catch (error) {
                 if (error instanceof RetryableError && attempt < MAX_RETRIES) {
+                    if (error.isQuota && runCtl && runCtl.limit > 1) {
+                        runCtl.limit = Math.max(1, Math.floor(runCtl.limit / 2));
+                        console.warn(`[multi-prompt] 遇到 429，同時請求數降為 ${runCtl.limit}`);
+                    }
                     const wait = error.delayMs || backoffMs(attempt);
                     console.warn(`Task ${task.id} 第 ${attempt + 1} 次重試（${error.message}），等待 ${Math.round(wait / 1000)} 秒`);
                     live.rawText = '';
@@ -1509,7 +1522,11 @@ document.addEventListener('DOMContentLoaded', () => {
                     noThinkingConfigModels.add(model.toLowerCase());   // 這個模型不吃 thinkingConfig，拿掉立刻重送
                     throw new RetryableError('模型不支援思考設定，改用預設', 100);
                 }
-                if (response.status === 429) throw new RetryableError('免費額度限制', parseRetryDelayMs(errData));
+                if (response.status === 429) {
+                    const qe = new RetryableError('免費額度限制', parseRetryDelayMs(errData));
+                    qe.isQuota = true;
+                    throw qe;
+                }
                 if (response.status >= 500) throw new RetryableError(`Google 伺服器忙碌 (HTTP ${response.status})`, parseRetryDelayMs(errData));
                 throw new Error(msg);
             }

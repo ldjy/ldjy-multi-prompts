@@ -1,4 +1,4 @@
-const CACHE_NAME = 'gemini-multi-prompt-v12';
+const CACHE_NAME = 'gemini-multi-prompt-v13';
 const urlsToCache = [
   './',
   './index.html',
