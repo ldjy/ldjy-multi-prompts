@@ -219,6 +219,16 @@ if (!appState || (!appState.tabs && !Array.isArray(appState.tabs))) {
     }
 }
 
+// v12：上次執行到一半就關掉 App 時，把殘留的「處理中」卡片標成中斷，避免永遠顯示處理中
+(appState.tabs || []).forEach(tab => {
+    (tab.results || []).forEach(r => {
+        if (r && r.status === 'loading') {
+            r.status = 'error';
+            r.html = (r.rawText ? r.html : '') + '<div style="color: var(--error);">上次執行中斷，請重新執行</div>';
+        }
+    });
+});
+
 function saveAppState() {
     localStorage.setItem('gemini_app_state', JSON.stringify(appState));
 }
@@ -1258,6 +1268,59 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    // ===== v12 效能改善（2026-09-27）=====
+    // 1) 串流輸出：回覆邊生成邊顯示，不用等整篇寫完
+    // 2) 併發上限：同時最多 N 個請求（預設 3），其他排隊，避免一次打爆免費額度 → 大量 429
+    // 3) 逾時：45 秒沒收到任何資料或總時間 180 秒就中止並重試，不會永遠卡在「正在處理中」
+    // 4) 重試：429/5xx/網路錯誤/逾時 指數退避＋抖動，優先採用 Google 回傳的 retryDelay
+    // 5) 思考模式：2.5-flash 關閉思考、3.x 用 low，大幅縮短首字時間；模型不支援時自動拿掉重送
+    // 6) 切換分頁不會中斷或錯寫到別的分頁；結果即時寫回所屬分頁
+    const MAX_CONCURRENCY = Math.max(1, parseInt(localStorage.getItem('gemini_max_concurrency') || '3', 10) || 3);
+    const IDLE_TIMEOUT_MS = 45000;
+    const TOTAL_TIMEOUT_MS = 180000;
+    const MAX_RETRIES = 4;
+    const noThinkingConfigModels = new Set();
+
+    function thinkingConfigFor(model) {
+        const m = model.toLowerCase();
+        if (noThinkingConfigModels.has(m)) return null;
+        if (m.includes('flash-lite')) return null;                 // lite 預設就是 off / minimal
+        if (m.includes('2.5-flash')) return { thinkingBudget: 0 }; // 2.5 Flash 可完全關閉思考
+        if (/gemini-3/.test(m)) return { thinkingLevel: 'low' };    // 3.x 預設 medium/high
+        return null;
+    }
+
+    function getCardEls(tabId, taskId) {
+        if (appState.activeTabId !== tabId) return null;           // 使用者切到別的分頁：只更新資料，不動畫面
+        const contentDiv = document.getElementById(`content-${taskId}`);
+        if (!contentDiv) return null;
+        return {
+            contentDiv,
+            statusIndicator: document.getElementById(`status-${taskId}`),
+            copyBtn: document.getElementById(`copy-${taskId}`)
+        };
+    }
+
+    function parseRetryDelayMs(errData) {
+        const details = errData?.error?.details;
+        if (!Array.isArray(details)) return 0;
+        for (const d of details) {
+            if (d && typeof d.retryDelay === 'string') {
+                const s = parseFloat(d.retryDelay);
+                if (!isNaN(s)) return Math.min(60000, Math.max(1000, s * 1000));
+            }
+        }
+        return 0;
+    }
+
+    function backoffMs(attempt) {
+        return Math.min(30000, 2000 * Math.pow(2, attempt)) + Math.floor(Math.random() * 1000);
+    }
+
+    class RetryableError extends Error {
+        constructor(message, delayMs) { super(message); this.delayMs = delayMs; }
+    }
+
     executeBtn.addEventListener('click', async () => {
         const apiKey = apiKeyInput.value.trim();
         const text = userInput.value.trim();
@@ -1278,6 +1341,7 @@ document.addEventListener('DOMContentLoaded', () => {
         localStorage.setItem('gemini_api_key', apiKey);
 
         // 當前 Tab 的任務清單
+        const runTabId = appState.activeTabId;
         const curTab = getCurrentTab();
         const currentTasks = curTab.tasks;
 
@@ -1287,7 +1351,7 @@ document.addEventListener('DOMContentLoaded', () => {
         loader.style.display = 'inline-block';
         resultsSection.style.display = 'flex';
         if (resultsCardsContainer) resultsCardsContainer.innerHTML = '';
-        updateToolbarAndBadges(appState.activeTabId);
+        updateToolbarAndBadges(runTabId);
 
         // 過濾掉 prompt 或標題為空的任務 (直接跳過)
         const activeTasks = currentTasks.filter(task => task.systemInstruction.trim() !== '' && task.title.trim() !== '');
@@ -1302,46 +1366,48 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
-        // 初始化當前 Tab 結果暫存
-        const runResults = [];
+        // 結果直接掛在所屬分頁上（切換分頁再回來也看得到即時進度）
+        const activeModel = getActiveModel();
+        curTab.results = activeTasks.map((task, i) => ({
+            taskId: task.id,
+            title: task.title,
+            rawText: '',
+            html: i < MAX_CONCURRENCY ? '' : '<span style="color:var(--text-muted);">排隊中…</span>',
+            status: 'loading'
+        }));
 
-        // 動態生成只有啟用的卡片
-        activeTasks.forEach(task => {
-            const placeholderRes = {
-                taskId: task.id,
-                title: task.title,
-                rawText: '',
-                html: '',
-                status: 'loading'
-            };
-            const card = createResultCard(appState.activeTabId, placeholderRes, task);
+        const liveList = curTab.results.slice();   // 固定參照：執行中移除任務也不會寫錯格
+        liveList.forEach((res, i) => {
+            const card = createResultCard(runTabId, res, activeTasks[i]);
             resultsCardsContainer.appendChild(card);
         });
 
         if (sortByAdoption) {
-            applySortingToCards(appState.activeTabId);
+            applySortingToCards(runTabId);
         }
 
+        const startedAt = performance.now();
         try {
-            // 錯開每個請求的發送時間 (每個延遲 600 毫秒) 來避免一次性觸發 Google API 的併發次數限制
-            const promises = activeTasks.map((task, index) => {
-                return new Promise(resolve => {
-                    setTimeout(async () => {
-                        const resObj = await callGeminiAPI(apiKey, text, task);
-                        if (resObj) runResults.push(resObj);
-                        resolve();
-                    }, index * 600);
-                });
-            });
-            await Promise.all(promises);
+            // 併發池：同時最多 MAX_CONCURRENCY 個請求
+            let next = 0;
+            const worker = async () => {
+                while (next < activeTasks.length) {
+                    const idx = next++;
+                    const resObj = await callGeminiAPI(apiKey, text, activeTasks[idx], runTabId, liveList[idx], activeModel);
+                    Object.assign(liveList[idx], resObj);
+                    saveAppState();
+                }
+            };
+            await Promise.all(Array.from({ length: Math.min(MAX_CONCURRENCY, activeTasks.length) }, worker));
 
-            // 依任務 ID 排序並持久化保存到當前 Tab
-            runResults.sort((a, b) => a.taskId - b.taskId);
-            curTab.results = runResults;
+            curTab.results.sort((a, b) => a.taskId - b.taskId);
             saveAppState();
-            updateToolbarAndBadges(appState.activeTabId);
-            if (sortByAdoption) {
-                applySortingToCards(appState.activeTabId);
+            console.info(`[multi-prompt] ${activeTasks.length} 個任務完成，耗時 ${((performance.now() - startedAt) / 1000).toFixed(1)} 秒（模型 ${activeModel}，併發 ${MAX_CONCURRENCY}）`);
+            if (appState.activeTabId === runTabId) {
+                updateToolbarAndBadges(runTabId);
+                if (sortByAdoption) {
+                    applySortingToCards(runTabId);
+                }
             }
         } catch (error) {
             console.error('整體執行發生錯誤', error);
@@ -1352,83 +1418,165 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    async function callGeminiAPI(apiKey, text, task, retries = 4) {
-        const statusIndicator = document.getElementById(`status-${task.id}`);
-        const contentDiv = document.getElementById(`content-${task.id}`);
-        const copyBtn = document.getElementById(`copy-${task.id}`);
+    async function callGeminiAPI(apiKey, text, task, tabId, liveRes, activeModel) {
+        const live = liveRes || { taskId: task.id, title: task.title, rawText: '', html: '', status: 'loading' };
+        const model = activeModel || getActiveModel();
 
-        try {
-            const activeModel = getActiveModel();
-            const url = `https://generativelanguage.googleapis.com/v1beta/models/${activeModel}:generateContent?key=${apiKey}`;
-            
-            const payload = {
-                contents: [
-                    {
-                        parts: [
-                            { text: `System Instruction: ${task.systemInstruction}\n\nUser Input: ${text}` }
-                        ]
-                    }
-                ],
-                generationConfig: {
-                    temperature: task.temperature,
-                }
-            };
+        const setHtml = (html) => {
+            live.html = html;
+            const els = getCardEls(tabId, task.id);
+            if (els) els.contentDiv.innerHTML = html;
+        };
 
-            const response = await fetch(url, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify(payload)
-            });
+        for (let attempt = 0; ; attempt++) {
+            try {
+                setHtml(attempt === 0 ? '正在處理中...' : '<span style="color:var(--text-muted);">重新嘗試中…</span>');
+                const markdownText = await streamOnce(apiKey, text, task, model, (partial) => {
+                    live.rawText = partial;
+                    setHtml(marked.parse(partial));
+                });
+                if (!markdownText) throw new Error('未取得有效的回傳內容');
 
-            if (!response.ok) {
-                if (response.status === 429 && retries > 0) {
-                    contentDiv.innerHTML = '<span style="color:var(--text-muted);">免費額度限制，等待 8 秒後重新嘗試中...</span>';
-                    await new Promise(r => setTimeout(r, 8000));
-                    return callGeminiAPI(apiKey, text, task, retries - 1);
-                }
-                const errorData = await response.json().catch(() => ({}));
-                throw new Error(errorData.error?.message || `伺服器回應錯誤 (HTTP ${response.status})`);
-            }
-
-            const data = await response.json();
-            
-            if (data.candidates && data.candidates.length > 0 && data.candidates[0].content.parts.length > 0) {
-                const markdownText = data.candidates[0].content.parts[0].text;
                 const parsedHtml = marked.parse(markdownText);
-                contentDiv.innerHTML = parsedHtml;
-                statusIndicator.className = 'status-indicator success';
-                
-                if (copyBtn) {
-                    copyBtn.setAttribute('data-raw-text', markdownText);
-                    copyBtn.style.display = 'flex';
+                live.rawText = markdownText;
+                setHtml(parsedHtml);
+                const els = getCardEls(tabId, task.id);
+                if (els) {
+                    if (els.statusIndicator) els.statusIndicator.className = 'status-indicator success';
+                    if (els.copyBtn) {
+                        els.copyBtn.setAttribute('data-raw-text', markdownText);
+                        els.copyBtn.style.display = 'flex';
+                    }
                 }
-
-                return {
-                    taskId: task.id,
-                    title: task.title,
-                    rawText: markdownText,
-                    html: parsedHtml,
-                    status: 'success'
-                };
-            } else {
-                throw new Error('未取得有效的回傳內容');
+                return { taskId: task.id, title: task.title, rawText: markdownText, html: parsedHtml, status: 'success' };
+            } catch (error) {
+                if (error instanceof RetryableError && attempt < MAX_RETRIES) {
+                    const wait = error.delayMs || backoffMs(attempt);
+                    console.warn(`Task ${task.id} 第 ${attempt + 1} 次重試（${error.message}），等待 ${Math.round(wait / 1000)} 秒`);
+                    live.rawText = '';
+                    for (let left = Math.ceil(wait / 1000); left > 0; left--) {
+                        setHtml(`<span style="color:var(--text-muted);">${error.message}，${left} 秒後重試（第 ${attempt + 1}/${MAX_RETRIES} 次）…</span>`);
+                        await new Promise(r => setTimeout(r, 1000));
+                    }
+                    continue;
+                }
+                console.error(`Task ${task.id} Error:`, error);
+                const errHtml = `<div style="color: var(--error);">錯誤：${error.message}</div>`;
+                setHtml(errHtml);
+                const els = getCardEls(tabId, task.id);
+                if (els && els.statusIndicator) els.statusIndicator.className = 'status-indicator error';
+                return { taskId: task.id, title: task.title, rawText: '', html: errHtml, status: 'error' };
             }
-
-        } catch (error) {
-            console.error(`Task ${task.id} Error:`, error);
-            const errHtml = `<div style="color: var(--error);">錯誤：${error.message}</div>`;
-            contentDiv.innerHTML = errHtml;
-            statusIndicator.className = 'status-indicator error';
-
-            return {
-                taskId: task.id,
-                title: task.title,
-                rawText: '',
-                html: errHtml,
-                status: 'error'
-            };
         }
     }
+
+    // 單次串流請求：回傳完整文字；可重試的錯誤丟 RetryableError
+    async function streamOnce(apiKey, text, task, model, onPartial) {
+        const generationConfig = { temperature: task.temperature };
+        const thinking = thinkingConfigFor(model);
+        if (thinking) generationConfig.thinkingConfig = thinking;
+
+        const payload = {
+            contents: [{ parts: [{ text: `System Instruction: ${task.systemInstruction}\n\nUser Input: ${text}` }] }],
+            generationConfig
+        };
+
+        const controller = new AbortController();
+        let abortReason = '';
+        const totalTimer = setTimeout(() => { abortReason = '回應總時間過長'; controller.abort(); }, TOTAL_TIMEOUT_MS);
+        let idleTimer = null;
+        const bumpIdle = () => {
+            clearTimeout(idleTimer);
+            idleTimer = setTimeout(() => { abortReason = '伺服器太久沒有回應'; controller.abort(); }, IDLE_TIMEOUT_MS);
+        };
+
+        try {
+            bumpIdle();
+            let response;
+            try {
+                response = await fetch(
+                    `https://generativelanguage.googleapis.com/v1beta/models/${model}:streamGenerateContent?alt=sse&key=${apiKey}`,
+                    { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload), signal: controller.signal }
+                );
+            } catch (e) {
+                throw new RetryableError(abortReason || '網路連線失敗', 0);
+            }
+
+            if (!response.ok) {
+                const errData = await response.json().catch(() => ({}));
+                const msg = errData.error?.message || `伺服器回應錯誤 (HTTP ${response.status})`;
+                if (response.status === 400 && thinking && /thinking/i.test(msg)) {
+                    noThinkingConfigModels.add(model.toLowerCase());   // 這個模型不吃 thinkingConfig，拿掉立刻重送
+                    throw new RetryableError('模型不支援思考設定，改用預設', 100);
+                }
+                if (response.status === 429) throw new RetryableError('免費額度限制', parseRetryDelayMs(errData));
+                if (response.status >= 500) throw new RetryableError(`Google 伺服器忙碌 (HTTP ${response.status})`, parseRetryDelayMs(errData));
+                throw new Error(msg);
+            }
+
+            // 瀏覽器不支援串流讀取時，退回一次讀完
+            if (!response.body || !response.body.getReader) {
+                const raw = await response.text();
+                return extractSseText(raw);
+            }
+
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';
+            let full = '';
+            let lastPaint = 0;
+            let blockReason = '';
+            try {
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+                    bumpIdle();
+                    buffer += decoder.decode(value, { stream: true });
+                    let nl;
+                    while ((nl = buffer.indexOf('\n')) >= 0) {
+                        const line = buffer.slice(0, nl).trim();
+                        buffer = buffer.slice(nl + 1);
+                        const chunk = parseSseLine(line);
+                        if (!chunk) continue;
+                        if (chunk.promptFeedback?.blockReason) blockReason = chunk.promptFeedback.blockReason;
+                        full += chunkText(chunk);
+                    }
+                    const now = performance.now();
+                    if (full && now - lastPaint > 120) {
+                        lastPaint = now;
+                        onPartial(full);
+                    }
+                }
+            } catch (e) {
+                throw new RetryableError(abortReason || '串流中斷', 0);
+            }
+            const tail = parseSseLine(buffer.trim());
+            if (tail) full += chunkText(tail);
+            if (!full && blockReason) throw new Error(`內容被安全機制擋下（${blockReason}）`);
+            return full;
+        } finally {
+            clearTimeout(totalTimer);
+            clearTimeout(idleTimer);
+        }
+    }
+
+    function parseSseLine(line) {
+        if (!line || !line.startsWith('data:')) return null;
+        const json = line.slice(5).trim();
+        if (!json || json === '[DONE]') return null;
+        try { return JSON.parse(json); } catch (e) { return null; }
+    }
+
+    function chunkText(chunk) {
+        const parts = chunk?.candidates?.[0]?.content?.parts;
+        if (!Array.isArray(parts)) return '';
+        return parts.filter(p => p && typeof p.text === 'string' && !p.thought).map(p => p.text).join('');
+    }
+
+    function extractSseText(raw) {
+        return raw.split('\n').map(l => parseSseLine(l.trim())).filter(Boolean).map(chunkText).join('');
+    }
+
+    // 測試用掛勾（不影響正常使用）
+    window.__multiPromptInternals = { thinkingConfigFor, parseRetryDelayMs, parseSseLine, chunkText, extractSseText, callGeminiAPI };
 });
