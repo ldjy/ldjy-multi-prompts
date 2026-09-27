@@ -198,17 +198,21 @@ if (!appState || (!appState.tabs && !Array.isArray(appState.tabs))) {
             results: null
         });
     }
-    // 確保每個 tab 的 tasks 至少有 10 個且包含 useCount
+    // v14：不再把任務自動補滿 10 個（以前按 X 刪掉的預設任務，重開 App 會被補回來）
+    //      只有整個分頁完全沒有任務時才放預設任務；並修正重複的任務 id（避免兩張卡片搶同一個畫面位置）
     appState.tabs.forEach((tab, index) => {
         if (!tab.id) tab.id = generateTabId();
         if (!tab.name) tab.name = `任務組 ${index + 1}`;
-        if (!tab.tasks || tab.tasks.length < 10) {
-            tab.tasks = tab.tasks || [];
-            for (let i = tab.tasks.length; i < 10; i++) {
-                tab.tasks.push(cloneTasks(defaultTasks[i]));
-            }
+        if (!Array.isArray(tab.tasks) || tab.tasks.length === 0) {
+            tab.tasks = cloneTasks(defaultTasks);
         }
+        const usedIds = new Set();
+        let nextId = tab.tasks.reduce((max, t) => Math.max(max, typeof t.id === 'number' ? t.id : -1), -1) + 1;
         tab.tasks.forEach(task => {
+            if (typeof task.id !== 'number' || usedIds.has(task.id)) {
+                task.id = nextId++;
+            }
+            usedIds.add(task.id);
             if (typeof task.useCount !== 'number') {
                 task.useCount = 0;
             }
